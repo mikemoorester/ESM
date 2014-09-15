@@ -500,6 +500,13 @@ def parse_gmt(gmt_file):
     return med
 
 def traverse_directory(args) :
+    """
+        traverse_directory(args)
+
+        Search through a specified GAMIT project to look for DPH residuals files
+        consolidate them into a compressed L3 format (.CL3), for analysis later.
+
+    """
     siteRGX = re.compile('DPH.'+args.site.upper())
     s = []
 
@@ -516,20 +523,22 @@ def traverse_directory(args) :
                     regex = re.compile(root)
 
 
-            if args.network == 'yyyy_dddnN':
-                if len(s) == 0:
-                    s.append(gamitFile)
-                else:
-                    # for each element in s, check to see if the root path does not match
-                    # any of the files already stored in the list
-                    m = 0
-                    for item in s:
-                        if regex.search(item) :
-                            m = 1
-                    if not m :
+                # only check for duplicates when there is more than one network
+                # being processed...
+                if args.network == 'yyyy_dddnN':
+                    if len(s) == 0:
                         s.append(gamitFile)
-            else:
-                s.append(gamitFile)
+                    else:
+                        # for each element in s, check to see if the root path does not match
+                        # any of the files already stored in the list
+                        m = 0
+                        for item in s:
+                            if regex.search(item) :
+                                m = 1
+                        if not m :
+                            s.append(gamitFile)
+                else:
+                    s.append(gamitFile)
 
     s.sort()
     lines = ''
