@@ -387,7 +387,8 @@ if __name__ == "__main__":
     parser.add_argument("--convert", dest="convertDphFile",help="Convert DPH file to consolidated")
 
     parser.add_argument("--daily",dest="daily",action='store_true',help="Plot daily variation of residuals")
-    #(option, args) = parser.parse_args()
+
+    parser.add_argument("--sat",dest="sat",action='store_true',help="Plot residuals by satellite")
     args = parser.parse_args()
     #===================================
    
@@ -461,10 +462,8 @@ if __name__ == "__main__":
         eleMedians = np.zeros((days,181))
         d = 0
         while d < days:
-            #print("Forming data sets for day:",d+1)
             minDTO = startDTO + dt.timedelta(days = d)
             maxDTO = startDTO + dt.timedelta(days = d+1)
-            #print("Getting Data for day",d,minDTO,maxDTO)
 
             criterion = ( ( cdata[:,0] >= calendar.timegm(minDTO.utctimetuple()) ) &
                           ( cdata[:,0] < calendar.timegm(maxDTO.utctimetuple()) ) )
@@ -484,7 +483,6 @@ if __name__ == "__main__":
         elevation = []
         for j in range(0,181):
             elevation.append(90.- j * 0.5)
-        print("eleMedians",np.shape(eleMedians))
         #===========================================================
         fig = plt.figure(figsize=(3.62, 2.76))
         ax = fig.add_subplot(111)
@@ -510,6 +508,48 @@ if __name__ == "__main__":
 
         plt.tight_layout()
         plt.show()
+
+    if args.sat:
+        dt_start = gt.unix2dt(cdata[0,0])
+        startDTO = dt_start
+        res_start = int(dt_start.strftime("%Y") + dt_start.strftime("%j"))
+
+        dt_stop = gt.unix2dt(cdata[-1,0])
+        res_stop = int(dt_stop.strftime("%Y") + dt_stop.strftime("%j"))
+
+        total_time = dt_stop - dt_start
+        days = total_time.days + 1
+        print("Residuals start from:",res_start," and end at ",res_stop,"total_time:",total_time,"in days:",total_time.days)
+
+        for prn in range(1,33):
+            criterion = ( cdata[:,4] == prn) 
+            prnd = np.array(np.where(criterion))[0]
+            if np.size(prnd) < 1 :
+                continue
+            print("Checking:",prn)
+            #===========================================================
+            fig = plt.figure(figsize=(3.62, 2.76))
+            ax = fig.add_subplot(111)
+            data = cdata[prnd,:]
+            zenSpacing = 0.5
+
+            for z in np.linspace(0,90,int(90./zenSpacing) +1) :
+                criterion = ( (data[:,2] < (z + zenSpacing/2.)) &
+                          (data[:,2] > (z - zenSpacing/2.)) )
+                ind = np.array(np.where(criterion))[0]
+                tmp = data[ind,:]
+                rout = esm.reject_outliers_arg(tmp[:,3],3)
+                for i in rout :
+                    ax.plot(90.- z, tmp[i,3],'k.',alpha=0.5)
+                ax.plot(90.-z,nanmedian(data[ind,3]),'r.',alpha=0.5)
+
+            for item in ([ax.title, ax.xaxis.label, ax.yaxis.label] +
+                    ax.get_xticklabels() + ax.get_yticklabels()):
+                item.set_fontsize(8)
+            ax.set_ylim([-35,35])
+            plt.tight_layout()
+            plt.savefig(str(prn)+"_ele.png")
+        #plt.show()
 
 
     if args.elevationPlot :

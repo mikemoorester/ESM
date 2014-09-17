@@ -16,7 +16,7 @@ Thumbs.db
 __pycache__/
 *.py[code]
 
-*.log
-
 # output from esm.py
 antmod.????
+*.log
+*.png
