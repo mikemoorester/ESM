@@ -130,6 +130,15 @@ def blockMedian(data, azSpacing=0.5,zenSpacing=0.5):
                 jCtr += 1
         iCtr += 1
 
+    # Salim --- When the residuals are NaN, replace them with the mean of 
+    # the all the data at the same elevation
+    # Get mean of columns (data at the same elevation) without taking int account NaNs
+    el_mean = nanmean(bMedian,axis=0)
+    #print(el_mean) 
+    # Find indices for NaNs, and replace them by the column mean
+    ind_nan = np.where(np.isnan(bMedian))
+    bMedian[ind_nan] = np.take(el_mean,ind_nan[1])
+
     return bMedian, bMedianStd
 
 def modelStats(model,data, azSpacing=0.5,zenSpacing=0.5):
