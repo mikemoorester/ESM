@@ -8,6 +8,9 @@
 ehthumbs.db
 Thumbs.db
 
+# VIM files
+.*swp
+
 # Python ..
 # Byte-compiled / optimized / DLL files
 __pycache__/

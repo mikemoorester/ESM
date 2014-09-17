@@ -6,6 +6,8 @@ import re
 import gzip
 import calendar
 
+from scipy.stats.stats import nanmean, nanmedian, nanstd
+
 import gpsTime as gt
 import datetime as dt
 
@@ -367,27 +369,30 @@ if __name__ == "__main__":
 
     #===================================
     # TODO Change this to argparse..
-    from optparse import OptionParser
+    #from optparse import OptionParser
+    import argparse
 
-    parser = OptionParser()
-    parser.add_option("-f", "--filename", dest="filename", help="Result file to plot")
-    parser.add_option("-e", "--elevation", dest="elevationPlot",action='store_true',default=False,
+    parser = argparse.ArgumentParser(prog='esm',description='Analyse one-way GAMIT phase residuals')
+
+    parser.add_argument("-f", "--filename", dest="filename", help="Result file to plot")
+    parser.add_argument("-e", "--elevation", dest="elevationPlot",action='store_true',default=False,
                         help="Plot Residuals vs Elevation Angle")
-    parser.add_option("-p", "--polar", dest="polarPlot",action='store_true',default=False,
+    parser.add_argument("-p", "--polar", dest="polarPlot",action='store_true',default=False,
                         help="Polar Plot Residuals vs Azimuth & Elevation Angle")
-    parser.add_option("--esm","--ESM",dest="esmFilename",help="Example Residual file from which to create an ESM")
+    parser.add_argument("--esm","--ESM",dest="esmFilename",help="Example Residual file from which to create an ESM")
 
-    parser.add_option("--dph",dest="dphFilename",help="DPH filename to parse, obtained from GAMIT") 
+    parser.add_argument("--dph",dest="dphFilename",help="DPH filename to parse, obtained from GAMIT") 
 
-    parser.add_option("-c", dest="consolidatedFile",help="Consolidated L3 residual file")
-    parser.add_option("--convert", dest="convertDphFile",help="Convert DPH file to consolidated")
+    parser.add_argument("-c", dest="consolidatedFile",help="Consolidated L3 residual file")
+    parser.add_argument("--convert", dest="convertDphFile",help="Convert DPH file to consolidated")
 
-    (option, args) = parser.parse_args()
-
+    parser.add_argument("--daily",dest="daily",action='store_true',help="Plot daily variation of residuals")
+    #(option, args) = parser.parse_args()
+    args = parser.parse_args()
     #===================================
    
-    if option.dphFilename :
-        dphs = parseDPH(option.dphFilename)
+    if args.dphFilename :
+        dphs = parseDPH(args.dphFilename)
 
         fig = plt.figure()
         ax = fig.add_subplot(111)
@@ -438,11 +443,76 @@ if __name__ == "__main__":
     # Calculate the block median
     zz = np.linspace(0,90,181)
 
-    if option.consolidatedFile :
-        cdata = parseConsolidated(option.consolidatedFile) 
+    if args.consolidatedFile :
+        cdata = parseConsolidated(args.consolidatedFile) 
 
-    #if option.elevationMedianPlot :
-    if option.elevationPlot :
+    if args.daily:
+        dt_start = gt.unix2dt(cdata[0,0])
+        startDTO = dt_start
+        res_start = int(dt_start.strftime("%Y") + dt_start.strftime("%j"))
+
+        dt_stop = gt.unix2dt(cdata[-1,0])
+        res_stop = int(dt_stop.strftime("%Y") + dt_stop.strftime("%j"))
+
+        total_time = dt_stop - dt_start
+        days = total_time.days + 1
+        print("Residuals start from:",res_start," and end at ",res_stop,"total_time:",total_time,"in days:",total_time.days)
+
+        eleMedians = np.zeros((days,181))
+        d = 0
+        while d < days:
+            #print("Forming data sets for day:",d+1)
+            minDTO = startDTO + dt.timedelta(days = d)
+            maxDTO = startDTO + dt.timedelta(days = d+1)
+            #print("Getting Data for day",d,minDTO,maxDTO)
+
+            criterion = ( ( cdata[:,0] >= calendar.timegm(minDTO.utctimetuple()) ) &
+                          ( cdata[:,0] < calendar.timegm(maxDTO.utctimetuple()) ) )
+            tind = np.array(np.where(criterion))[0]
+            ele_model = []
+
+            # check we have some data for each day
+            if np.size(tind) > 0 :
+                # split the data for this test
+                blkm, blkmstd = esm.blockMedian(cdata[tind,1:4])
+                for j in range(0,181):
+                    ele_model.append(nanmean(blkm[:,j]))
+                ele_model = np.array(ele_model)
+                eleMedians[d,:] = np.array(ele_model)
+            d += 1
+
+        elevation = []
+        for j in range(0,181):
+            elevation.append(90.- j * 0.5)
+        print("eleMedians",np.shape(eleMedians))
+        #===========================================================
+        fig = plt.figure(figsize=(3.62, 2.76))
+        ax = fig.add_subplot(111)
+
+        for i in range(0,np.shape(eleMedians)[0]):
+            ax.plot(elevation,eleMedians[i,:],alpha=0.5)
+
+        # now compute the over all median
+        blkm, blkmstd = esm.blockMedian(cdata[:,1:4])
+        ele_model = []
+        for j in range(0,181):
+            ele_model.append(nanmean(blkm[:,j]))
+
+        ax.plot(elevation,ele_model,'r-',alpha=0.5,linewidth=2)
+        ax.set_xlabel('Elevation Angle (degrees)',fontsize=8)
+        ax.set_ylabel('ESM (mm)',fontsize=8)
+        ax.set_xlim([0, 90])
+        #ax.set_ylim([-15,15])
+
+        for item in ([ax.title, ax.xaxis.label, ax.yaxis.label] +
+                    ax.get_xticklabels() + ax.get_yticklabels()):
+            item.set_fontsize(8)
+
+        plt.tight_layout()
+        plt.show()
+
+
+    if args.elevationPlot :
 
         # Do an elevation only plot
         fig = plt.figure(figsize=(3.62, 2.76))
@@ -461,7 +531,7 @@ if __name__ == "__main__":
     
         #fig.savefig('MOBS_Elevation_Median.eps')
     # Create a polar plot of the residuals
-    if option.polarPlot:
+    if args.polarPlot:
         #blkMedian,blkMedianStd,rms = blockMedian(option.filename,0.5,1)
         az = np.linspace(0,360,721)
         #fig = plt.figure()
@@ -492,16 +562,16 @@ if __name__ == "__main__":
         plt.tight_layout()
    
         # Print out the ratio if the elvation plot has been selected as well
-        if option.elevationPlot:
+        if args.elevationPlot:
             ratio = rms/medrms
-            print('{} {:.3f} {:.3f} {:.2f}').format(option.filename,medrms,rms,ratio)
+            print('{} {:.3f} {:.3f} {:.2f}').format(args.filename,medrms,rms,ratio)
 
-    if option.polarPlot | option.elevationPlot :
+    if args.polarPlot | args.elevationPlot :
         plt.show()
 
-    if option.esmFilename :
-        esm,esmStd = blockMedian(option.esmFilename,0.5,1)
+    if args.esmFilename :
+        esm,esmStd = blockMedian(args.esmFilename,0.5,1)
 
-    if option.convertDphFile:
-        print("about to consolidate the file:",option.convertDphFile)
-        dph2Consolidated(option.convertDphFile)
+    if args.convertDphFile:
+        print("about to consolidate the file:",args.convertDphFile)
+        dph2Consolidated(args.convertDphFile)

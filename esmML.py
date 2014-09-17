@@ -2,6 +2,8 @@
 from __future__ import division, print_function, absolute_import
 
 import numpy as np
+
+from sklearn import neighbors
 from sklearn.metrics import r2_score,explained_variance_score,mean_absolute_error
 
 from scipy import interpolate
@@ -28,3 +30,7 @@ def calcR2(model,data,azGridSpacing=0.5,zenGridSpacing=0.5):
     #print("r2,mae",r2,mae)
     return r2, mae
 
+def nnRegression(data):
+    """
+    Perform a near-neighbours regression
+    """
