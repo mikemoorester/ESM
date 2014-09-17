@@ -76,7 +76,7 @@ def reject_outliers_elevation(data,nSigma,zenSpacing=0.5):
 
 def blockMedian(data, azSpacing=0.5,zenSpacing=0.5):
     """
-        bMedian = blockMedian(residuals,gridSpacing)
+        bMedian = blockMedian(residuals,args, idSpacing)
 
         where,
 
@@ -130,16 +130,20 @@ def blockMedian(data, azSpacing=0.5,zenSpacing=0.5):
                 jCtr += 1
         iCtr += 1
 
-    # Salim --- When the residuals are NaN, replace them with the mean of 
+    return bMedian, bMedianStd
+
+def interpolate_eleMean(model):
+    """ Salim --- When the residuals are NaN, replace them with the mean of 
     # the all the data at the same elevation
+    """
     # Get mean of columns (data at the same elevation) without taking int account NaNs
-    el_mean = nanmean(bMedian,axis=0)
+    el_mean = nanmean(model,axis=0)
     #print(el_mean) 
     # Find indices for NaNs, and replace them by the column mean
-    ind_nan = np.where(np.isnan(bMedian))
-    bMedian[ind_nan] = np.take(el_mean,ind_nan[1])
+    ind_nan = np.where(np.isnan(model))
+    model[ind_nan] = np.take(el_mean,ind_nan[1])
 
-    return bMedian, bMedianStd
+    return model
 
 def modelStats(model,data, azSpacing=0.5,zenSpacing=0.5):
     """
@@ -646,6 +650,10 @@ if __name__ == "__main__":
     parser.add_argument('--model', dest='model', default=False, action='store_true',help="Create an ESM\n (default = False)")
     parser.add_argument('-o','--outfile',help='filename for ESM model (default = antmod.ssss)')
 
+    # Interpolation/extrapolation options
+    # TODO: nearneighbour, polynomial, surface fit, etc..
+    parser.add_argument('-i','--interpolate',dest='interpolate',choices=['ele_mean'],
+                            help="ele_mean use the elevation mean to fill any missing values in the model")
     #===================================================================
     # Debug function, not needed
     #parser.add_argument('--gmt',dest='gmt_file',help="Debug function not implemented, use a GMT fit of residuals")
@@ -757,6 +765,9 @@ if __name__ == "__main__":
 
             # do a block median with 5 sigma outlier detection at 0.5 degree grid
             med, medStd = blockMedian(data)
+            if args.interpolate == 'ele_mean':
+                med = interpolate_eleMean(med)
+
             # Take the block median residuals and add them to the ANTEX file
             esm = create_esm(med, 0.5, 0.5, antennas,antType)
             models[ctr,:,:,:] = esm
