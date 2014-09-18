@@ -198,8 +198,8 @@ def searchAUTCLN(args):
     for root, dirs, files in os.walk(args.search):
         path = root.split('/')
         if autclnFile in files:
-            print("Found a file in :",root)
-            aFile = root + autclnFile
+            print("Found a file in :",root,path[-1])
+            aFile = root + '/' + autclnFile
             autcln = parseAUTCLNSUM(aFile)
             autclns.append(autcln)
 
