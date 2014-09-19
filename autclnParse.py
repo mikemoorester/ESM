@@ -5,6 +5,7 @@ import numpy as np
 import re
 import gzip
 import calendar
+import os, sys
 
 from scipy.stats.stats import nanmean, nanmedian, nanstd
 
@@ -12,7 +13,7 @@ import gpsTime as gt
 import datetime as dt
 
 import esm
-import os, sys
+import svnav
 
 def file_opener(filename):
     '''
@@ -105,15 +106,10 @@ def parseAUTCLNSUM(autclnFile) :
     """
     autcln = parseDPH(dphFile)
 
-    Read in a GAMIT undifferenced phase residual file.
-    Return a DPH structure
-
-    Will skip any lines in the file which contain a '*' 
-    within any column 
-
-    Checks there are no comments in the first column of the file
-    Checks if the file is gzip'd or uncompressed
-
+    Reads in an autcln postfit summary file to store some statistics from the processing:
+    1) Residuals of the satellites by Nadir angle
+    2) Time stamp of data processed
+    3) The A and B terms used to charcaterise the phase residuals at each station
     """
 
     asterixRGX = re.compile('\*')
@@ -121,38 +117,56 @@ def parseAUTCLNSUM(autclnFile) :
     # look for the satellite nadir residuals
     # this will be in increment of 0.2 degrees
     nadirRGX = re.compile('NAMEAN G')
+    cfilesRGX = re.compile('INPUT CFILES:')
+    siteEleRGX = re.compile('ATELV')
+    siteEleHdrRGX = re.compile('ATELV Site')
 
     autcln = {}
     satNadir = np.zeros((32,70)) 
     autcln['satNadir'] = satNadir
+
+    sites = {}
+    autcln['sites'] = sites
 
     # work out if the file is compressed or not,
     # and then get the correct file opener.
     file_open = file_opener(autclnFile)
 
     with file_open(autclnFile) as f:
-        print("Opend the file",autclnFile)
+        #print("Opend the file",autclnFile)
         for line in f:
-            dph = {}
             if nadirRGX.search(line):
                 prn = int(line[8:11])
                 offset = 12
                 resid = np.zeros(70)
-                #print("Satellite NADIR residuals line for prn:",prn,line)
                 for i in range(0,70):
                     start = offset + i*6
                     end = offset + i*6 + 5
                     resid[i] = float(line[start:end].strip())
                 satNadir[prn-1,:] = resid
+            elif cfilesRGX.search(line):
+                year  = int(line[21:25])
+                month = int(line[26:28])
+                day   = int(line[29:31])
+                autcln['date'] = dt.datetime(year,month,day)
+            elif siteEleRGX.search(line):
+                # skip the header
+                if siteEleHdrRGX.search(line):
+                    #print("header:",line)
+                    continue
+                # save off the A anb B terms to charcaterise the residuals:
+                # RMS^2 = A^2 + B^2/(sin(elv))^2
+                site = str(line[6:10])
+                A    = float(line[12:16])
+                B    = float(line[18:22])
+                sites[site] = {}
+                sites[site]['A'] = A
+                sites[site]['B'] = B
 
-    #print("autcln",autcln)
     return autcln 
 
-def consolidate(dphs,startDT) :
+def consolidateNadir(svdat,autcln,outfile='SV_RESIDUALS.ND3') :
     '''
-    consolidate look through a GAMIT DPH file strip out the epcoh, azimuth, zenith angle
-    lcresidual and PRN, and dump it to a file as:
-
             timestamp az zen lc(mm) prn
 
     Input: 
@@ -164,19 +178,22 @@ def consolidate(dphs,startDT) :
     '''
     lines = ''
     sep = ' '
+    dto = autcln['date']
+    with open(outfile,'a') as f:
 
-    # Iterate over each epoch
-    for epoch in dphs['epochs']:
-        for sat in dphs[str(epoch)]:
-            satPRN = 'prn_'+str(sat)
-            ep  = dphs[str(epoch)][str(sat)]
-            az  = dphs[satPRN][ep]['az']
-            zen = 90. - dphs[satPRN][ep]['el']
-            epoch = dphs[satPRN][ep]['epoch']
-            lc_mm = dphs[satPRN][ep]['lccyc'] * 190.
-            timeStamp = startDT + dt.timedelta(seconds=epoch*30)
-            time = timeStamp.strftime("%Y %j %H:%M:%S")
-            lines = lines+str(time)+sep+str(az)+sep+str(zen)+sep+str(lc_mm)+sep+str(sat)+"\n"
+        for i in range(0,32):
+            prn = i+1
+            sv = svnav.findSV_DTO(svdat,prn,dto)
+            ctr = 0
+            time = dto.strftime("%Y %j")
+            res_line = ''
+
+            for res in autcln['satNadir'][i]:
+                if res < 99.9:
+                    res_line = res_line + ' ' +  str(res)
+                else :
+                    res_line = res_line + ' nan '
+            print(time,sv, res_line,file=f)
 
     return lines
 
@@ -214,11 +231,9 @@ if __name__ == "__main__":
     from matplotlib import pyplot as plt
     from matplotlib import cm 
 
-    #===================================
-    # TODO Change this to argparse..
-    #from optparse import OptionParser
     import argparse
 
+    #===================================
     parser = argparse.ArgumentParser(prog='autclnParse',description='Read in the autcln post fit summary file')
 
     parser.add_argument("-f", "--filename", dest="filename", help="Autcln post fit summary file")
@@ -227,7 +242,8 @@ if __name__ == "__main__":
     parser.add_argument("--search",dest="search",help="Search for autcln post summary files from the provided path")
     parser.add_argument('--network',dest='network',default='yyyy_dddnN',choices=['yyyy_dddnN','ddd'],
                                         help="Format of gps subnetworks")
-    #parser.add_argument("--convert", dest="convertDphFile",help="Convert DPH file to consolidated")
+    parser.add_argument('--ns', dest="nadirDump", default=False, action='store_true', help='Stack the nadir residuals')
+    parser.add_argument('--sv', dest="svnavFile", help="Location of GAMIT svnav.dat")
     args = parser.parse_args()
     #===================================
    
@@ -237,4 +253,8 @@ if __name__ == "__main__":
     if args.search:
         autclns = searchAUTCLN(args)
         print("autclns",autclns)
-
+        if args.nadirDump:
+            print("Dumping the nadir residuals to a file")
+            svdat = svnav.parseSVNAV(args.svnavFile)
+            for autcln in autclns:
+                consolidateNadir(svdat,autcln)

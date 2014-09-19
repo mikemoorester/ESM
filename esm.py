@@ -650,6 +650,9 @@ if __name__ == "__main__":
     parser.add_argument('--model', dest='model', default=False, action='store_true',help="Create an ESM\n (default = False)")
     parser.add_argument('-o','--outfile',help='filename for ESM model (default = antmod.ssss)')
 
+    parser.add_argument('--nadir',dest='nadir',help="location of satellite nadir residuals SV_RESIDUALS.ND3")
+    parser.add_argument('--nadirPlot',dest='nadirPlot',default=False,action='store_true',help="Plot nadir residuals")
+
     # Interpolation/extrapolation options
     # TODO: nearneighbour, polynomial, surface fit, etc..
     parser.add_argument('-i','--interpolate',dest='interpolate',choices=['ele_mean'],
@@ -674,6 +677,39 @@ if __name__ == "__main__":
         if args.model:
             args.resfile = args.save_file 
 
+    if args.nadir:
+        nadir = np.genfromtxt(args.nadir)
+        sv_nums = np.unique(nadir[:,2])
+        nadirData = {}
+        for sv in sv_nums:
+            criterion = nadir[:,2] == sv 
+            ind = np.array(np.where(criterion))[0]
+            ctr = 0
+            val = 0
+            nadir_medians = nanmean(nadir[ind,3:73],axis=0)
+            #print(sv,nadir_medians,np.shape(nadir_medians))
+            nadirData[str(int(sv))] = nadir_medians
+        if args.nadirPlot:
+            nadir = np.linspace(0,13.8, int(14.0/0.2) )
+
+            fig = plt.figure(figsize=(3.62, 2.76))
+            ax = fig.add_subplot(111)
+
+            for sv in nadirData:
+                #fig = plt.figure(figsize=(3.62, 2.76))
+                #ax = fig.add_subplot(111)
+                ax.plot(nadir,nadirData[sv],'-',alpha=0.7,linewidth=1)
+            ax.set_xlabel('Nadir Angle (degrees)',fontsize=8)
+            ax.set_ylabel('Residual (mm)',fontsize=8)
+            ax.set_xlim([0, 14])
+            ax.set_ylim([-5,5])
+
+            for item in ([ax.title, ax.xaxis.label, ax.yaxis.label] +
+                ax.get_xticklabels() + ax.get_yticklabels()):
+                item.set_fontsize(8)
+
+            plt.tight_layout()
+            plt.show()
     if args.model or args.elevation or args.polar:
         #===================================================================
         # get the antenna information from an antex file
