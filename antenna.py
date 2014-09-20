@@ -5,6 +5,8 @@ import numpy as np
 import string as s
 import re
 
+import gpsTime as gt
+
 class Antenna:
     def __init__(self, name='ASH701945C_M   NONE', source='igs08.atx') :
         # check the antenna name has a radome defined, and is 20 characters long
@@ -130,10 +132,17 @@ def parseANTEX(atxFile):
 
     with open(atxFile) as f:
         for line in f:
-            if typeRGX.search(line):    
+            if typeRGX.search(line): 
                 antenna['name'] = line[0:15]+' '+line[16:20]#+serial number
                 antenna['type'] = line[0:15]
                 antenna['dome'] = line[16:20]
+                antenna['serialNum'] = line[20:40]
+
+                # only applied for satellite PCV
+                # scode "sNNN" s = sytem, NNN = SVN number 
+                antenna['scode'] = line[40:50]
+                # COSPAR ID "YYYY-XXXA" 
+                antenna['cospar'] = line[50:60]
 
                 ant = Antenna(line[0:15]+' '+line[16:20], atxFile)
                 # might need to put in an exception for satellite antennas
@@ -351,13 +360,21 @@ def antennaType(antennaType,antennas):
     '''
     antenna = antennaType(antennaType,antennas)
     '''
+    found = []
     for antenna in antennas:
         if antenna['name'] == antennaType:
-            return antenna
+            found.append(antenna)
+
+    # if only one antenna is found return this one
+    if np.size(found) == 1:
+        return found[0]
+    elif np.size(found) > 1:
+        print("WARNING found more the one antenne of type:",antennaType)
+        print("returning first one of",np.size(found))
+        return(found[0])
 
     # try another serach with the radome set to NONE 
     antennaTypeNONE = antennaType[0:16]+'NONE'
-    #print('NONE search',antennaTypeNONE)
 
     for antenna in antennas:
         if antenna['name'] == antennaTypeNONE:
@@ -365,9 +382,123 @@ def antennaType(antennaType,antennas):
     print('Could not find <'+antennaType+'>') 
     return -1
 
-def plt_layout(ax,fontsize):
-    """ 
-    plt_layout(ax,fontzise)
+def antennaTypeSerial(antennaType,antennaSerial,antennas):
+    '''
+    antenna = antennaType(antennaType,antennaSerial,antennas)
+    '''
+    for antenna in antennas:
+        if antenna['name'].rstrip() == antennaType.rstrip() and antenna['serialNum'].rstrip() == antennaSerial.rstrip():
+            return antenna
+
+    print('Could not find <'+antennaType+'><'+antennaSerial+'>') 
+
+    return -1
+
+def antennaTypeScode(antennaType,SatCode,antennas):
+    '''
+    antenna = antennaTypeSatCode(antennaType,SatCode,antennas)
+    '''
+    for antenna in antennas:
+        if antenna['name'].rstrip() == antennaType.rstrip() and antenna['scode'].rstrip() == SatCode.rstrip():
+            return antenna
+    print('Could not find <'+antennaType+'><'+SatCode+'>') 
+    return -1
+
+def antennaScode(SatCode,antennas):
+    '''
+    [antenna] = antennaTypeSatCode(SatCode,antennas)
+    '''
+    found = []
+    for antenna in antennas:
+        if antenna['scode'].rstrip() == SatCode.rstrip():
+            found.append(antenna)
+
+    # if only one antenna is found return this one
+    if np.size(found) == 1:
+        return found
+    elif np.size(found) > 1:
+        print("WARNING found more the one antenne of type:",antennaType)
+        #print("returning first one of",np.size(found))
+        print("returning all of them",np.size(found))
+        return found
+    print('Could not find <'+SatCode+'>') 
+    return -1
+
+def printSatelliteModel(antenna):
+    print("                                                            START OF ANTENNA")
+    #print("{:<20s}                                        TYPE / SERIAL NO".format(antenna['type']))#antType))
+    print("{:<20s}{:<20s}{:<10s}{:<10s}TYPE / SERIAL NO".format(antenna['type'],antenna['serialNum'],antenna['scode'],antenna['cospar']))
+    print("EMPIRICAL MODEL     ANU                      0    25-MAR-11 METH / BY / # / DATE")
+    print("     0.0                                                    DAZI")
+    print("     0.0  17.0   1.0                                        ZEN1 / ZEN2 / DZEN")
+    print("     2                                                      # OF FREQUENCIES")
+
+    # valid_from is a dto (datetime object
+    print("VALID FROM:",antenna['validFrom'])
+    #yyyy, MM, dd, hh, mm, ss, ms = gt.dt2validFrom(antenna['validFrom'])
+    # force seconds to 0.00 for valid from
+    #print("{:>06d} {:>5s} {:>5s} {:>5s} {:>5s}    0.0000000                 VALID FROM\n".format(int(antenna['validFrom'][0]),antenna['validFrom'][1],antenna['validFrom'][2],antenna['validFrom'][3],antenna['validFrom'][4]))
+    print("  {:>04d}  {:>02d}  0.0000000                 VALID FROM\n".format(int(antenna['validFrom'][0]),int(antenna['validFrom'][1])) )
+    #print("VALID TO:",antenna['validTo'])
+    #yyyy, MM, dd, hh, mm, ss, ms = gt.dt2validFrom(antenna['validTo'])
+    #hh = str(23)
+    #mm = str(59)
+    #print("{:>6s} {:>5s} {:>5s} {:>5s} {:>5s}   59.9999999                 VALID UNTIL\n".format(yyyy,MM,dd,hh,mm))
+    #
+    # Change the numbers after ANU to the same code as the previous antenna 
+    #
+    print("ANU08_1648                                                  SINEX CODE")
+    # TODO: add in date time, user, computer and version of esm model was used in COMMENTS
+    print("Empirical model derived from MIT repro2                     COMMENT")
+
+    print("   {:3s}                                                      START OF FREQUENCY".format('G01'))
+
+    pco_n = "{:0.2f}".format(antenna['PCO_G01'][0])
+    pco_n = "{:>10s}".format(pco_n)
+    pco_e = "{:0.2f}".format(antenna['PCO_G01'][1])
+    pco_e = "{:>10s}".format(pco_e)
+    pco_u = "{:0.2f}".format(antenna['PCO_G01'][2])
+    pco_u = "{:>10s}".format(pco_u)
+
+    print(pco_n+pco_e+pco_u+"                              NORTH / EAST / UP")
+
+    noazi = "{:>8s}".format('NOAZI')
+
+    for d in antenna['noazi']:
+        d = "{:>8.2f}".format(d)
+        noazi = noazi + d
+
+    print(noazi)
+    print("   {:3s}                                                      END OF FREQUENCY".format('G01'))
+
+    #================= G02 =======================
+
+    print("   {:3s}                                                      START OF FREQUENCY".format('G02'))
+
+    pco_n = "{:0.2f}".format(antenna['PCO_G02'][0])
+    pco_n = "{:>10s}".format(pco_n)
+    pco_e = "{:0.2f}".format(antenna['PCO_G02'][1])
+    pco_e = "{:>10s}".format(pco_e)
+    pco_u = "{:0.2f}".format(antenna['PCO_G02'][2])
+    pco_u = "{:>10s}".format(pco_u)
+
+    print(pco_n+pco_e+pco_u+"                              NORTH / EAST / UP")
+
+    noazi = "{:>8s}".format('NOAZI')
+
+    for d in antenna['noazi']:
+        d = "{:>8.2f}".format(d)
+        noazi = noazi + d
+
+    print(noazi)
+    print("   {:3s}                                                      END OF FREQUENCY".format('G02'))
+    print("                                                            END OF ANTENNA")
+
+    return 1
+
+
+def plt_layout(ax,fontzise):
+    """
     Set the axis and labels to the same fontsize
     """
 
@@ -386,6 +517,8 @@ if __name__ == "__main__":
     parser.add_argument('-f', '--file', dest='file1', default='./t/antmod.dat')
 
     parser.add_argument('-t', '--AntType',dest='AntType', default='ASH701945C_M    NONE')
+    parser.add_argument('-s', '--AntSerial',dest='AntSerial')
+    parser.add_argument('--SCODE',dest='SatCode')
     #parser.add_argument('-t', '--AntType',dest='AntType', default='TRM59800.00     NONE')
 
     parser.add_argument('-p', '--plot',dest='plot', default=False, action='store_true')
@@ -398,10 +531,14 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     antennas = parseANTEX(args.file1)
-    antenna = antennaType(args.AntType,antennas)
-    
-    #print('DZEN:',antenna['dzen']) 
-    #print('DAZI:',antenna['dazi']) 
+
+    if args.AntSerial:
+        antenna = antennaTypeSerial(args.AntType,args.AntSerial,antennas)
+    elif args.SatCode:
+        antenna = antennaTypeScode(args.AntType,args.SatCode,antennas)
+    else:
+        antenna = antennaType(args.AntType,antennas)
+    #print("Found:",antenna)    
 
     if args.polar or  args.elevation or args.elevationMedian :
         import matplotlib.pyplot as plt
@@ -441,16 +578,22 @@ if __name__ == "__main__":
         plt.tight_layout()
 
     if args.elevation :
-        zz = np.linspace(0,90,19)
+        zz = np.linspace(antenna['dzen'][0],antenna['dzen'][1],antenna['dzen'][1]/antenna['dzen'][2]+1)
+        #zz = np.linspace(0,90,19)
         #zz = np.linspace(0,90,181)
         ele = 90. - zz[::-1]
 
         # Do an elevation only plot
         fig = plt.figure(figsize=(3.62, 2.76))
         ax = fig.add_subplot(111)
-        for zen in aData :
-            ax.plot(ele,zen[::-1])
-        ax.set_xlabel('Elevation Angle (degrees)',fontsize=8)
+        # check to see if it is a satellite antenna (< 14 degrees)
+        if antenna['dzen'][1] > 30. :
+            for zen in aData :
+                ax.plot(ele,zen[::-1])
+            ax.set_xlabel('Elevation Angle (degrees)',fontsize=8)
+        else:
+            ax.plot(zz,antenna['noazi'])
+            ax.set_xlabel('Nadir Angle (degrees)',fontsize=8)
         ax.set_ylabel('PCV (mm)',fontsize=8)
         #ax.set_ylim([-15, 15])
         plt_layout(ax,8)

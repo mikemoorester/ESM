@@ -4,11 +4,7 @@ from __future__ import division, print_function, absolute_import
 import numpy as np
 import re
 import gzip
-import calendar
 
-from scipy.stats.stats import nanmean, nanmedian, nanstd
-
-import gpsTime as gt
 import datetime as dt
 
 import os, sys
@@ -55,6 +51,42 @@ def findSV_DTO(svnav,prn,dto) :
             lstdto = record['date']
        
     return sv
+
+def findBLK_SV(svnav,sv):
+    blk = -1
+    sv = int(sv)
+    for record in svnav:
+        if record['sv'] == sv :
+            blk = record['blk']
+            #print("The SV",sv,"belongs to block:",blk)
+    return blk 
+
+def blockType(b):
+    """
+    BTString = blockType(blk)
+    
+    Given the block number return a string describing the block type of the satellite:
+
+    BLK: 1=Blk I  2=Blk II    3=Blk IIA    4=Blk IIR-A   5=Blk IIR-B   6=Blk IIR-M   7=Blk IIF
+
+    """
+    blk = int(b)
+    if(blk == 1):
+        return "Block I"
+    elif(blk == 2):
+        return "Block II"
+    elif(blk == 3):
+        return "Block IIA"
+    elif(blk == 4):
+        return "Block IIR-A"
+    elif(blk == 5):
+        return "Block IIR-B"
+    elif(blk == 6):
+        return "Block IIR-M"
+    elif(blk == 7):
+        return "Block IIF"
+    return
+
 #===========================================================================
 if __name__ == "__main__":
 
@@ -75,4 +107,9 @@ if __name__ == "__main__":
         dto = dt.datetime(2012,06,01)
         for prn in range(1,33):
             sv = findSV_DTO(svnav,prn,dto)
-            print(prn,sv)
+            blk = findBLK_SV(svnav,sv)
+            print(sv,blk)
+            BT = blockType(blk)
+            print(prn,sv,blk,BT)
+
+

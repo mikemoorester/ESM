@@ -89,10 +89,6 @@ def jd2gps(jd):
       Output:  gpsweek  - GPS week number
                sow      - seconds of week since 0 hr, Sun.
                rollover - number of GPS week rollovers (modulus 1024)
-
-      Copyright (c) 2011, Michael R. Craymer
-      All rights reserved.
-      Email: mike@craymer.com
     """
 
     jdgps = cal2jd(1980,1,6);    # beginning of GPS week numbering
@@ -120,9 +116,6 @@ def jd2cal(jd):
                mn - month of calendar date
                dy - day of calendar date (including decimal)
 
-      Copyright (c) 2011, Michael R. Craymer
-      All rights reserved.
-      Email: mike@craymer.com
     """
     a = np.fix(jd+0.5)
 
@@ -149,9 +142,6 @@ def jd2doy(jd):
       Output:  doy - day of year
                yr  - year
 
-      Copyright (c) 2011, Michael R. Craymer
-      All rights reserved.
-      Email: mike@craymer.com
     """
     [yr,mn,dy] = jd2cal(jd)
     doy = jd - cal2jd(yr,1,0)

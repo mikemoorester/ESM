@@ -12,16 +12,16 @@ import calendar
 from scipy import interpolate
 from scipy.stats.stats import nanmean, nanmedian, nanstd
 
-#from sklearn.metrics import r2_score
-
 import antenna as ant
 import residuals as res
 import gpsTime as gt
 import GamitStationFile as gsf
 import time
+import svnav
 
 import os, sys
 import datetime as dt
+
 
 def reject_outliers(data, m=5):
     return data[abs(data - np.mean(data)) < m * np.std(data)]
@@ -42,14 +42,12 @@ def reject_outliers_arg(data,nSigma):
 def reject_outliers_byelevation_arg(data,nSigma,zenSpacing=0.5):
     zen = np.linspace(0,90,int(90./zenSpacing)+1)
     tmp = []
-    #tmp = np.array(tmp)
     for z in zen:
         criterion = ( (data[:,2] < (z + zenSpacing/2.)) & 
                       (data[:,2] > (z - zenSpacing/2.)) ) 
         ind = np.array(np.where(criterion))[0]
         rout = reject_outliers_arg(data[ind,3],nSigma)
         tmp.append(rout.tolist()) 
-        #tmp = np.concatenate([tmp,rout])
     return tmp 
 
 def reject_outliers_elevation(data,nSigma,zenSpacing=0.5):
@@ -593,6 +591,25 @@ def traverse_directory(args) :
 
     return
 
+def satelliteModel(antenna,nadirData):
+    #assuming a 14 model at 1 deg intervals
+    ctr = 0
+    newNoAzi = []
+    # from the Nadir model force the value at 13.8 to be equal to 14.0
+    for val in antenna['noazi'] :
+        if ctr == 13:
+            #newNoAzi.append(val + nadirData[ctr*5 -1])
+            antenna['noazi'][ctr] = (val + nadirData[ctr*5 -1])
+        elif ctr > 13:
+            #newNoAzi.append(val) 
+            antenna['noazi'][ctr] = val 
+        else:
+            #newNoAzi.append(val + nadirData[ctr*5])
+            antenna['noazi'][ctr] = val + nadirData[ctr*5]
+        ctr +=1
+
+    ant.printSatelliteModel(antenna)
+    return 1
 #
 # TODO:
 #      test plots
@@ -651,6 +668,9 @@ if __name__ == "__main__":
     parser.add_argument('-o','--outfile',help='filename for ESM model (default = antmod.ssss)')
 
     parser.add_argument('--nadir',dest='nadir',help="location of satellite nadir residuals SV_RESIDUALS.ND3")
+    parser.add_argument('--nm','--nadirModel',dest='nadirModel',default=False,action='store_true',
+                        help="Create an ESM model for the satellites")
+
     parser.add_argument('--nadirPlot',dest='nadirPlot',default=False,action='store_true',help="Plot nadir residuals")
 
     # Interpolation/extrapolation options
@@ -660,14 +680,15 @@ if __name__ == "__main__":
     #===================================================================
     # Debug function, not needed
     #parser.add_argument('--gmt',dest='gmt_file',help="Debug function not implemented, use a GMT fit of residuals")
-
-    parser.add_argument('--version', action='version', version='%(prog)s 0.01') 
+    parser.add_argument('--sv', dest="svnavFile",default="~/gg/tables/svnav.dat", help="Location of GAMIT svnav.dat")
+    #parser.add_argument('--version', action='version', version='%(prog)s 0.01') 
     args = parser.parse_args()
 
     # expand any home directory paths (~) to the full path, otherwise python won't find the file
     if args.resfile : args.resfile = os.path.expanduser(args.resfile)
     args.antex = os.path.expanduser(args.antex)
     args.station_file = os.path.expanduser(args.station_file)
+    args.svnavFile = os.path.expanduser(args.svnavFile)
     #===================================================================
     # Look through the GAMIT processing subdirectories for DPH files 
     # belonging to a particular site.
@@ -681,24 +702,52 @@ if __name__ == "__main__":
         nadir = np.genfromtxt(args.nadir)
         sv_nums = np.unique(nadir[:,2])
         nadirData = {}
+        nadirDataStd = {}
         for sv in sv_nums:
             criterion = nadir[:,2] == sv 
             ind = np.array(np.where(criterion))[0]
-            ctr = 0
-            val = 0
             nadir_medians = nanmean(nadir[ind,3:73],axis=0)
-            #print(sv,nadir_medians,np.shape(nadir_medians))
+            nadir_stdev   = nanstd(nadir[ind,3:73],axis=0)
             nadirData[str(int(sv))] = nadir_medians
+            #nadirDataStd[str(int(sv))] = nadir_stdev
+
         if args.nadirPlot:
             nadir = np.linspace(0,13.8, int(14.0/0.2) )
+            svdat = svnav.parseSVNAV(args.svnavFile)
 
+            # prepare a plot for each satellite block
+            figBLK = []
+            axBLK = []
+            for i in range(0,7):
+                figTmp = plt.figure(figsize=(3.62, 2.76))
+                figBLK.append(figTmp)
+                axTmp  = figBLK[i].add_subplot(111)
+                axBLK.append(axTmp)
+
+            # now plot by block
+            for sv in nadirData:
+                blk = svnav.findBLK_SV(svdat,sv)
+                axBLK[int(blk)-1].plot(nadir,nadirData[sv],'-',alpha=0.7,linewidth=1,label="SV "+str(sv))
+            # tidy each plot up
+            for i in range(0,7):
+                axBLK[i].set_xlabel('Nadir Angle (degrees)',fontsize=8)
+                axBLK[i].set_ylabel('Residual (mm)',fontsize=8)
+                axBLK[i].set_xlim([0, 14])
+                axBLK[i].set_ylim([-5,5])
+                axBLK[i].legend(fontsize=8,ncol=3)
+                title = svnav.blockType(i+1)
+                axBLK[i].set_title(title,fontsize=8)
+                for item in ([axBLK[i].title, axBLK[i].xaxis.label, axBLK[i].yaxis.label] +
+                    axBLK[i].get_xticklabels() + axBLK[i].get_yticklabels()):
+                    item.set_fontsize(8)
+
+            # Do a plot of all the satellites now..
             fig = plt.figure(figsize=(3.62, 2.76))
             ax = fig.add_subplot(111)
 
             for sv in nadirData:
-                #fig = plt.figure(figsize=(3.62, 2.76))
-                #ax = fig.add_subplot(111)
                 ax.plot(nadir,nadirData[sv],'-',alpha=0.7,linewidth=1)
+
             ax.set_xlabel('Nadir Angle (degrees)',fontsize=8)
             ax.set_ylabel('Residual (mm)',fontsize=8)
             ax.set_xlim([0, 14])
@@ -709,8 +758,22 @@ if __name__ == "__main__":
                 item.set_fontsize(8)
 
             plt.tight_layout()
+    
+            # Plot the satellites by block
+            blocks = np.unique(nadir[:,])
             plt.show()
-    if args.model or args.elevation or args.polar:
+
+    
+        if args.nadirModel:
+            antennas = ant.parseANTEX(args.antex)
+            for sv in nadirData:
+                svn = "{:03d}".format(int(sv))
+                scode = 'G' + str(svn)
+                antenna = ant.antennaScode(scode,antennas)
+                for a in antenna:
+                    print("adding residuals to :",sv)
+                    satelliteModel(a, nadirData[sv])
+    elif args.model or args.elevation or args.polar and not arg.nadir:
         #===================================================================
         # get the antenna information from an antex file
         antennas = ant.parseANTEX(args.antex)
