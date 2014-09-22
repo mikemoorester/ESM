@@ -424,7 +424,9 @@ def create_esm(med,azGrid,zenGrid,antennas,antType):
     # add the block median residuals to an interpolate PCV file...
     # args.grid should come from the antenna data based on the grid spacing of the antex file
 
+    print("Searching for :",antType)
     antenna = ant.antennaType(antType,antennas)
+    print("antenna",antenna,antType)
     dzen = antenna['dzen'][2]
     x = np.linspace(0,360, int(360./dzen)+1 )
     y = np.linspace(0,90, int(90./dzen)+1 )
@@ -630,24 +632,23 @@ def applyNadirCorrection(svdat,nadirData,site_residuals):
     """
     #print("Attempting to apply the corrections")
 
-    #print(np.shape(nadirData),np.shape(site_residuals))
     # form up a linear interpolater for each nadir model..
     nadirAngles = np.linspace(0,13.8,70)
-    #print("Nadir Angles",nadirAngles)
     linearInt = {}
     for svn in nadirData:
-        print("Forming linear interpoator ofr svn:",svn)
         linearInt[svn] = interpolate.interp1d(nadirAngles ,nadirData[svn]) 
     # slow method, can;t assume the PRN will be the same SV over time..
     # can break residuals in daily chunks and then apply correction
     for i in range(0,np.shape(site_residuals)[0]):
         nadeg = calcNadirAngle(site_residuals[i,2])
+        if nadeg > 13.8:
+            nadeg = 13.8
         dto = gt.unix2dt(site_residuals[i,0])
         svn = svnav.findSV_DTO(svdat,int(site_residuals[i,4]),dto)
-        print("Looking for svn:",svn, int(site_residuals[i,4]))
-        site_residuals[i,3] = site_residuals[i,3] + linearInt[svn]
+        #print("Looking for svn:",svn, int(site_residuals[i,4]),nadeg)
+        site_residuals[i,3] = site_residuals[i,3] + linearInt[str(svn)](nadeg)
 
-    return 1
+    return site_residuals 
 
 #==============================================================================
 #
@@ -837,9 +838,12 @@ if __name__ == "__main__":
         dt_stop = gt.unix2dt(site_residuals[-1,0])
         res_stop = int(dt_stop.strftime("%Y") + dt_stop.strftime("%j"))
         print("\tResiduals run from:",res_start,"to:",res_stop)
+        
         if args.nadirCorrection:
+            svdat = svnav.parseSVNAV(args.svnavFile)
             print("\n\t** Applying the Satellite dependent Nadir angle correction to the phase residuals")
-            applyNadirCorrection(svdat,nadirData,site_residuals)
+            print("svdat:",np.shape(svdat))
+            site_residuals = applyNadirCorrection(svdat,nadirData,site_residuals)
             
 
         # work out how many models need to be created for the time period the residuals cover
@@ -913,7 +917,7 @@ if __name__ == "__main__":
 
             # get the correct antenna type for this station at this time
             antType = gsf.antennaType(sdata,minVal_dt.strftime("%Y"),minVal_dt.strftime("%j"))
-
+            print("get station info:",antType,minVal_dt.strftime("%Y"),minVal_dt.strftime("%j"))
             # do a block median with 5 sigma outlier detection at 0.5 degree grid
             med, medStd = blockMedian(data)
             if args.interpolate == 'ele_mean':
