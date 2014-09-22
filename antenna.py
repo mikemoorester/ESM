@@ -112,7 +112,7 @@ def parseANTEX(atxFile):
     daziRGX             = re.compile('DAZI')
     dzenRGX             = re.compile('ZEN1\s\/\sZEN2\s\/\sDZEN')
     validFromRGX        = re.compile('VALID FROM')
-    validToRGX          = re.compile('VALID TO')
+    validToRGX          = re.compile('VALID UNTIL')
     sinexCodeRGX        = re.compile('SINEX CODE')
     pcoRGX              = re.compile('NORTH / EAST / UP')
 
@@ -172,6 +172,7 @@ def parseANTEX(atxFile):
                 # maybe less if it has been entered like 2004 01 01, etc...
                 validFrom = np.array(s.split(line)[0:-2])
                 antenna['validFrom'] = validFrom.astype(np.float)
+                antenna['validTo'] = []
                 ant.validFrom(validFrom.astype(np.float))
             elif validToRGX.search(line):
                 validTo = np.array(s.split(line)[0:-2])
@@ -417,38 +418,27 @@ def antennaScode(SatCode,antennas):
     if np.size(found) == 1:
         return found
     elif np.size(found) > 1:
-        print("WARNING found more the one antenne of type:",antennaType)
-        #print("returning first one of",np.size(found))
-        print("returning all of them",np.size(found))
+        #print("WARNING found more the one antenne of type:",antennaType)
+        #print("returning all of them",np.size(found))
         return found
     print('Could not find <'+SatCode+'>') 
     return -1
 
 def printSatelliteModel(antenna):
     print("                                                            START OF ANTENNA")
-    #print("{:<20s}                                        TYPE / SERIAL NO".format(antenna['type']))#antType))
     print("{:<20s}{:<20s}{:<10s}{:<10s}TYPE / SERIAL NO".format(antenna['type'],antenna['serialNum'],antenna['scode'],antenna['cospar']))
     print("EMPIRICAL MODEL     ANU                      0    25-MAR-11 METH / BY / # / DATE")
     print("     0.0                                                    DAZI")
     print("     0.0  17.0   1.0                                        ZEN1 / ZEN2 / DZEN")
     print("     2                                                      # OF FREQUENCIES")
 
-    # valid_from is a dto (datetime object
-    print("VALID FROM:",antenna['validFrom'])
-    #yyyy, MM, dd, hh, mm, ss, ms = gt.dt2validFrom(antenna['validFrom'])
-    # force seconds to 0.00 for valid from
-    #print("{:>06d} {:>5s} {:>5s} {:>5s} {:>5s}    0.0000000                 VALID FROM\n".format(int(antenna['validFrom'][0]),antenna['validFrom'][1],antenna['validFrom'][2],antenna['validFrom'][3],antenna['validFrom'][4]))
-    print("  {:>04d}  {:>02d}  0.0000000                 VALID FROM\n".format(int(antenna['validFrom'][0]),int(antenna['validFrom'][1])) )
-    #print("VALID TO:",antenna['validTo'])
-    #yyyy, MM, dd, hh, mm, ss, ms = gt.dt2validFrom(antenna['validTo'])
-    #hh = str(23)
-    #mm = str(59)
-    #print("{:>6s} {:>5s} {:>5s} {:>5s} {:>5s}   59.9999999                 VALID UNTIL\n".format(yyyy,MM,dd,hh,mm))
-    #
-    # Change the numbers after ANU to the same code as the previous antenna 
-    #
+    print("  {:>04d}    {:>02d}    {:>02d}    {:>02d}    {:>02d}    {:>9.7f}                 VALID FROM".format(int(antenna['validFrom'][0]),int(antenna['validFrom'][1]),int(antenna['validFrom'][2]),int(antenna['validFrom'][3]),int(antenna['validFrom'][4]),float(antenna['validFrom'][5])  ) )
+    if np.size(antenna['validTo']) > 1:
+        print("  {:>04d}    {:>02d}    {:>02d}    {:>02d}    {:>02d}    {:>9.7f}                VALID UNTIL".format(int(antenna['validTo'][0]),int(antenna['validTo'][1]),int(antenna['validTo'][2]),int(antenna['validTo'][3]),int(antenna['validTo'][4]),float(antenna['validTo'][5])  ) )
     print("ANU08_1648                                                  SINEX CODE")
+    #
     # TODO: add in date time, user, computer and version of esm model was used in COMMENTS
+    #
     print("Empirical model derived from MIT repro2                     COMMENT")
 
     print("   {:3s}                                                      START OF FREQUENCY".format('G01'))

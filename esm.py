@@ -598,13 +598,10 @@ def satelliteModel(antenna,nadirData):
     # from the Nadir model force the value at 13.8 to be equal to 14.0
     for val in antenna['noazi'] :
         if ctr == 13:
-            #newNoAzi.append(val + nadirData[ctr*5 -1])
             antenna['noazi'][ctr] = (val + nadirData[ctr*5 -1])
         elif ctr > 13:
-            #newNoAzi.append(val) 
             antenna['noazi'][ctr] = val 
         else:
-            #newNoAzi.append(val + nadirData[ctr*5])
             antenna['noazi'][ctr] = val + nadirData[ctr*5]
         ctr +=1
 
@@ -771,7 +768,6 @@ if __name__ == "__main__":
                 scode = 'G' + str(svn)
                 antenna = ant.antennaScode(scode,antennas)
                 for a in antenna:
-                    print("adding residuals to :",sv)
                     satelliteModel(a, nadirData[sv])
     elif args.model or args.elevation or args.polar and not arg.nadir:
         #===================================================================
