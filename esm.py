@@ -607,6 +607,49 @@ def satelliteModel(antenna,nadirData):
 
     ant.printSatelliteModel(antenna)
     return 1
+
+def calcNadirAngle(ele):
+    """
+        Calculate the NADIR angle based on the station's elevation angle
+
+    """
+
+    nadeg = np.arcsin(6378.0/26378.0 * np.cos(ele/180.*np.pi)) * 180./np.pi
+
+    return nadeg
+
+def applyNadirCorrection(svdat,nadirData,site_residuals):
+    """
+    sr = applyNadirCorrection(nadirData,site_residuals)
+
+    Apply the nadir residual model to the carrier phase residuals.
+
+    nadirData is a dictionary of satellite corrections
+    nadirData['1'] = <array 70 elements> 0 to 13.8 degrees
+
+    """
+    #print("Attempting to apply the corrections")
+
+    #print(np.shape(nadirData),np.shape(site_residuals))
+    # form up a linear interpolater for each nadir model..
+    nadirAngles = np.linspace(0,13.8,70)
+    #print("Nadir Angles",nadirAngles)
+    linearInt = {}
+    for svn in nadirData:
+        print("Forming linear interpoator ofr svn:",svn)
+        linearInt[svn] = interpolate.interp1d(nadirAngles ,nadirData[svn]) 
+    # slow method, can;t assume the PRN will be the same SV over time..
+    # can break residuals in daily chunks and then apply correction
+    for i in range(0,np.shape(site_residuals)[0]):
+        nadeg = calcNadirAngle(site_residuals[i,2])
+        dto = gt.unix2dt(site_residuals[i,0])
+        svn = svnav.findSV_DTO(svdat,site_residuals[i,4],dto)
+        print("Looking for svn:",svn, site_residuals[i,4])
+        site_residuals[i,3] = site_residuals[i,3] + linearInt[svn]
+
+    return 1
+
+#==============================================================================
 #
 # TODO:
 #      test plots
@@ -629,7 +672,7 @@ if __name__ == "__main__":
 
     To create a model:
     > python ~/gg/com/esm.py --model --site yar2 -f ./t/YAR2.2012.CL3
-                    ''')
+                   ''')
 
     #===================================================================
     # Consolidate DPH file options:
@@ -669,7 +712,9 @@ if __name__ == "__main__":
                         help="Create an ESM model for the satellites")
 
     parser.add_argument('--nadirPlot',dest='nadirPlot',default=False,action='store_true',help="Plot nadir residuals")
+    parser.add_argument('--nadirCorrection',dest='nadirCorrection',default=False,action='store_true',help="Apply the satellite Nadir correction to the phase residuals")
 
+    parser.add_argument('--test',dest='test',default=False,action='store_true')
     # Interpolation/extrapolation options
     # TODO: nearneighbour, polynomial, surface fit, etc..
     parser.add_argument('-i','--interpolate',dest='interpolate',choices=['ele_mean'],
@@ -677,7 +722,7 @@ if __name__ == "__main__":
     #===================================================================
     # Debug function, not needed
     #parser.add_argument('--gmt',dest='gmt_file',help="Debug function not implemented, use a GMT fit of residuals")
-    parser.add_argument('--sv', dest="svnavFile",default="~/gg/tables/svnav.dat", help="Location of GAMIT svnav.dat")
+    parser.add_argument('--sv','--svnav', dest="svnavFile",default="~/gg/tables/svnav.dat", help="Location of GAMIT svnav.dat")
     #parser.add_argument('--version', action='version', version='%(prog)s 0.01') 
     args = parser.parse_args()
 
@@ -686,10 +731,17 @@ if __name__ == "__main__":
     args.antex = os.path.expanduser(args.antex)
     args.station_file = os.path.expanduser(args.station_file)
     args.svnavFile = os.path.expanduser(args.svnavFile)
+
+    svdat = []
+    nadirData = {}
     #===================================================================
     # Look through the GAMIT processing subdirectories for DPH files 
     # belonging to a particular site.
     #===================================================================
+    if args.test:
+        ele = np.linspace(0,90,10)
+        nad = calcNadirAngle(ele)
+        print(ele,nad)
     if args.traverse :
         traverse_directory(args)
         if args.model:
@@ -698,7 +750,6 @@ if __name__ == "__main__":
     if args.nadir:
         nadir = np.genfromtxt(args.nadir)
         sv_nums = np.unique(nadir[:,2])
-        nadirData = {}
         nadirDataStd = {}
         for sv in sv_nums:
             criterion = nadir[:,2] == sv 
@@ -769,7 +820,8 @@ if __name__ == "__main__":
                 antenna = ant.antennaScode(scode,antennas)
                 for a in antenna:
                     satelliteModel(a, nadirData[sv])
-    elif args.model or args.elevation or args.polar and not arg.nadir:
+
+    if args.model or args.elevation or args.polar:
         #===================================================================
         # get the antenna information from an antex file
         antennas = ant.parseANTEX(args.antex)
@@ -785,6 +837,10 @@ if __name__ == "__main__":
         dt_stop = gt.unix2dt(site_residuals[-1,0])
         res_stop = int(dt_stop.strftime("%Y") + dt_stop.strftime("%j"))
         print("\tResiduals run from:",res_start,"to:",res_stop)
+        if args.nadirCorrection:
+            print("\n\t** Applying the Satellite dependent Nadir angle correction to the phase residuals")
+            applyNadirCorrection(svdat,nadirData,site_residuals)
+            
 
         # work out how many models need to be created for the time period the residuals cover
         # check the station file, and looks for change in antenna type or radome type
