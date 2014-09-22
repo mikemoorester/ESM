@@ -643,8 +643,8 @@ def applyNadirCorrection(svdat,nadirData,site_residuals):
     for i in range(0,np.shape(site_residuals)[0]):
         nadeg = calcNadirAngle(site_residuals[i,2])
         dto = gt.unix2dt(site_residuals[i,0])
-        svn = svnav.findSV_DTO(svdat,site_residuals[i,4],dto)
-        print("Looking for svn:",svn, site_residuals[i,4])
+        svn = svnav.findSV_DTO(svdat,int(site_residuals[i,4]),dto)
+        print("Looking for svn:",svn, int(site_residuals[i,4]))
         site_residuals[i,3] = site_residuals[i,3] + linearInt[svn]
 
     return 1
