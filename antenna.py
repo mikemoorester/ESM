@@ -424,67 +424,75 @@ def antennaScode(SatCode,antennas):
     print('Could not find <'+SatCode+'>') 
     return -1
 
-def printSatelliteModel(antenna):
-    with open("satmod.dat","w") as f:
+def printAntexHeader(f):
 
-        print("                                                            START OF ANTENNA",file=f)
-        print("{:<20s}{:<20s}{:<10s}{:<10s}TYPE / SERIAL NO".format(antenna['type'],antenna['serialNum'],antenna['scode'],antenna['cospar']),file=f)
-        print("EMPIRICAL MODEL     ANU                      0    25-MAR-11 METH / BY / # / DATE",file=f)
-        print("     0.0                                                    DAZI",file=f)
-        print("     0.0  17.0   1.0                                        ZEN1 / ZEN2 / DZEN",file=f)
-        print("     2                                                      # OF FREQUENCIES",file=f)
+    print('     1.4            M                                       ANTEX VERSION / SYST',file=f)
+    print('A                                                           PCV TYPE / REFANT',file=f)
+    print('                                                            END OF HEADER',file=f)
 
-        print("  {:>04d}    {:>02d}    {:>02d}    {:>02d}    {:>02d}    {:>9.7f}                 VALID FROM".format(int(antenna['validFrom'][0]),int(antenna['validFrom'][1]),int(antenna['validFrom'][2]),int(antenna['validFrom'][3]),int(antenna['validFrom'][4]),float(antenna['validFrom'][5])  ),file=f )
-        if np.size(antenna['validTo']) > 1:
-            print("  {:>04d}    {:>02d}    {:>02d}    {:>02d}    {:>02d}    {:>9.7f}                VALID UNTIL".format(int(antenna['validTo'][0]),int(antenna['validTo'][1]),int(antenna['validTo'][2]),int(antenna['validTo'][3]),int(antenna['validTo'][4]),float(antenna['validTo'][5])  ) ,file=f)
-        print("ANU08_1648                                                  SINEX CODE",file=f)
-        #
-        # TODO: add in date time, user, computer and version of esm model was used in COMMENTS
-        #
-        print("Empirical model derived from MIT repro2                     COMMENT",file=f)
+    return 1
 
-        print("   {:3s}                                                      START OF FREQUENCY".format('G01'),file=f)
+def printSatelliteModel(antenna,f):
+#   with open("satmod.dat","a") as f:
 
-        pco_n = "{:0.2f}".format(antenna['PCO_G01'][0])
-        pco_n = "{:>10s}".format(pco_n)
-        pco_e = "{:0.2f}".format(antenna['PCO_G01'][1])
-        pco_e = "{:>10s}".format(pco_e)
-        pco_u = "{:0.2f}".format(antenna['PCO_G01'][2])
-        pco_u = "{:>10s}".format(pco_u)
+    print("                                                            START OF ANTENNA",file=f)
+    print("{:<20s}{:<20s}{:<10s}{:<10s}TYPE / SERIAL NO".format(antenna['type'],antenna['serialNum'],antenna['scode'],antenna['cospar']),file=f)
+    print("EMPIRICAL MODEL     ANU                      0    25-MAR-11 METH / BY / # / DATE",file=f)
+    print("     0.0                                                    DAZI",file=f)
+    print("     0.0  17.0   1.0                                        ZEN1 / ZEN2 / DZEN",file=f)
+    print("     2                                                      # OF FREQUENCIES",file=f)
 
-        print(pco_n+pco_e+pco_u+"                              NORTH / EAST / UP",file=f)
+    print("  {:>04d}    {:>02d}    {:>02d}    {:>02d}    {:>02d}    {:>9.7f}                 VALID FROM".format(int(antenna['validFrom'][0]),int(antenna['validFrom'][1]),int(antenna['validFrom'][2]),int(antenna['validFrom'][3]),int(antenna['validFrom'][4]),float(antenna['validFrom'][5])  ),file=f )
+    if np.size(antenna['validTo']) > 1:
+        print("  {:>04d}    {:>02d}    {:>02d}    {:>02d}    {:>02d}    {:>9.7f}                VALID UNTIL".format(int(antenna['validTo'][0]),int(antenna['validTo'][1]),int(antenna['validTo'][2]),int(antenna['validTo'][3]),int(antenna['validTo'][4]),float(antenna['validTo'][5])  ) ,file=f)
+    print("ANU08_1648                                                  SINEX CODE",file=f)
+    #
+    # TODO: add in date time, user, computer and version of esm model was used in COMMENTS
+    #
+    print("Empirical model derived from MIT repro2                     COMMENT",file=f)
 
-        noazi = "{:>8s}".format('NOAZI')
+    print("   {:3s}                                                      START OF FREQUENCY".format('G01'),file=f)
 
-        for d in antenna['noazi']:
-            d = "{:>8.2f}".format(d)
-            noazi = noazi + d
+    pco_n = "{:0.2f}".format(antenna['PCO_G01'][0])
+    pco_n = "{:>10s}".format(pco_n)
+    pco_e = "{:0.2f}".format(antenna['PCO_G01'][1])
+    pco_e = "{:>10s}".format(pco_e)
+    pco_u = "{:0.2f}".format(antenna['PCO_G01'][2])
+    pco_u = "{:>10s}".format(pco_u)
 
-        print(noazi,file=f)
-        print("   {:3s}                                                      END OF FREQUENCY".format('G01'),file=f)
+    print(pco_n+pco_e+pco_u+"                              NORTH / EAST / UP",file=f)
 
-        #================= G02 =======================
+    noazi = "{:>8s}".format('NOAZI')
 
-        print("   {:3s}                                                      START OF FREQUENCY".format('G02'),file=f)
+    for d in antenna['noazi']:
+        d = "{:>8.2f}".format(d)
+        noazi = noazi + d
 
-        pco_n = "{:0.2f}".format(antenna['PCO_G02'][0])
-        pco_n = "{:>10s}".format(pco_n)
-        pco_e = "{:0.2f}".format(antenna['PCO_G02'][1])
-        pco_e = "{:>10s}".format(pco_e)
-        pco_u = "{:0.2f}".format(antenna['PCO_G02'][2])
-        pco_u = "{:>10s}".format(pco_u)
+    print(noazi,file=f)
+    print("   {:3s}                                                      END OF FREQUENCY".format('G01'),file=f)
 
-        print(pco_n+pco_e+pco_u+"                              NORTH / EAST / UP",file=f)
+    #================= G02 =======================
 
-        noazi = "{:>8s}".format('NOAZI')
+    print("   {:3s}                                                      START OF FREQUENCY".format('G02'),file=f)
 
-        for d in antenna['noazi']:
-            d = "{:>8.2f}".format(d)
-            noazi = noazi + d
+    pco_n = "{:0.2f}".format(antenna['PCO_G02'][0])
+    pco_n = "{:>10s}".format(pco_n)
+    pco_e = "{:0.2f}".format(antenna['PCO_G02'][1])
+    pco_e = "{:>10s}".format(pco_e)
+    pco_u = "{:0.2f}".format(antenna['PCO_G02'][2])
+    pco_u = "{:>10s}".format(pco_u)
 
-        print(noazi,file=f)
-        print("   {:3s}                                                      END OF FREQUENCY".format('G02'),file=f)
-        print("                                                            END OF ANTENNA",file=f)
+    print(pco_n+pco_e+pco_u+"                              NORTH / EAST / UP",file=f)
+
+    noazi = "{:>8s}".format('NOAZI')
+
+    for d in antenna['noazi']:
+        d = "{:>8.2f}".format(d)
+        noazi = noazi + d
+
+    print(noazi,file=f)
+    print("   {:3s}                                                      END OF FREQUENCY".format('G02'),file=f)
+    print("                                                            END OF ANTENNA",file=f)
 
     return 1
 

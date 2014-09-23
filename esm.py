@@ -424,9 +424,7 @@ def create_esm(med,azGrid,zenGrid,antennas,antType):
     # add the block median residuals to an interpolate PCV file...
     # args.grid should come from the antenna data based on the grid spacing of the antex file
 
-    print("Searching for :",antType)
     antenna = ant.antennaType(antType,antennas)
-    print("antenna",antenna,antType)
     dzen = antenna['dzen'][2]
     x = np.linspace(0,360, int(360./dzen)+1 )
     y = np.linspace(0,90, int(90./dzen)+1 )
@@ -607,8 +605,7 @@ def satelliteModel(antenna,nadirData):
             antenna['noazi'][ctr] = val + nadirData[ctr*5]
         ctr +=1
 
-    ant.printSatelliteModel(antenna)
-    return 1
+    return antenna 
 
 def calcNadirAngle(ele):
     """
@@ -814,13 +811,18 @@ if __name__ == "__main__":
 
     
         if args.nadirModel:
+            # read in the antenna satellite model
             antennas = ant.parseANTEX(args.antex)
-            for sv in nadirData:
-                svn = "{:03d}".format(int(sv))
-                scode = 'G' + str(svn)
-                antenna = ant.antennaScode(scode,antennas)
-                for a in antenna:
-                    satelliteModel(a, nadirData[sv])
+            with open('satmod.dat','w') as f:
+                ant.printAntexHeader(f)
+
+                for sv in nadirData:
+                    svn = "{:03d}".format(int(sv))
+                    scode = 'G' + str(svn)
+                    antenna = ant.antennaScode(scode,antennas)
+                    for a in antenna:
+                        adjustedAnt = satelliteModel(a, nadirData[sv])
+                        ant.printSatelliteModel(adjustedAnt,f)
 
     if args.model or args.elevation or args.polar:
         #===================================================================
@@ -920,6 +922,7 @@ if __name__ == "__main__":
             print("get station info:",antType,minVal_dt.strftime("%Y"),minVal_dt.strftime("%j"))
             # do a block median with 5 sigma outlier detection at 0.5 degree grid
             med, medStd = blockMedian(data)
+            # check to see if any interpolation needs to be applied
             if args.interpolate == 'ele_mean':
                 med = interpolate_eleMean(med)
 
@@ -928,6 +931,37 @@ if __name__ == "__main__":
             models[ctr,:,:,:] = esm
             ctr +=1
 
+            # Now sort out any plotting requests
+            #===========================================================
+            # Do an elevation only plot of the residuals
+            #===========================================================
+            if args.elevation:
+                fig = plt.figure(figsize=(3.62, 2.76))
+                fig.canvas.set_window_title(args.site+"_elevationDependentResiduals_"+str(1)+".png")
+                ax = fig.add_subplot(111)
+                ele = np.linspace(0,90, int(90./0.5)+1 )
+                ele_model = []
+                for i in range(0,720):
+                    ax.scatter(90.-ele,med[i,:],s=1,alpha=0.5,c='k')
+
+                elevation = []
+                for j in range(0,181):
+                    elevation.append(90.- j * 0.5)
+                    ele_model.append(nanmean(med[:,j]))
+
+                ax.plot(elevation,ele_model[:],'r-',linewidth=2)
+                ax.set_xlabel('Elevation Angle (degrees)',fontsize=8)
+                ax.set_ylabel('Phase Residuals (mm)',fontsize=8)
+                ax.set_xlim([0, 90])
+                ax.set_ylim([-15,15])
+
+                for item in ([ax.title, ax.xaxis.label, ax.yaxis.label] +
+                    ax.get_xticklabels() + ax.get_yticklabels()):
+                    item.set_fontsize(8)
+
+                plt.tight_layout()
+
+            #if args.polar:
     #===========================================================================================
     # If we want an elevation or polar plot....
     #===========================================================================================
@@ -1009,29 +1043,29 @@ if __name__ == "__main__":
             #===========================================================
             # Do an elevation only plot of the residuals
             #===========================================================
-            fig = plt.figure(figsize=(3.62, 2.76))
-            ax = fig.add_subplot(111)
-            ele = np.linspace(0,90, int(90./0.5)+1 )
-            ele_model = []
-            for i in range(0,720):
-                ax.scatter(90.-ele,med[i,:],s=1,alpha=0.5,c='k')
+#           fig = plt.figure(figsize=(3.62, 2.76))
+#           ax = fig.add_subplot(111)
+#           ele = np.linspace(0,90, int(90./0.5)+1 )
+#           ele_model = []
+#           for i in range(0,720):
+#               ax.scatter(90.-ele,med[i,:],s=1,alpha=0.5,c='k')
 
-            elevation = []
-            for j in range(0,181):
-                elevation.append(90.- j * 0.5)
-                ele_model.append(nanmean(med[:,j]))
+#           elevation = []
+#           for j in range(0,181):
+#               elevation.append(90.- j * 0.5)
+#               ele_model.append(nanmean(med[:,j]))
 
-            ax.plot(elevation,ele_model[:],'r-',linewidth=2)
-            ax.set_xlabel('Elevation Angle (degrees)',fontsize=8)
-            ax.set_ylabel('ESM (mm)',fontsize=8)
-            ax.set_xlim([0, 90])
-            ax.set_ylim([-15,15])
+#           ax.plot(elevation,ele_model[:],'r-',linewidth=2)
+#           ax.set_xlabel('Elevation Angle (degrees)',fontsize=8)
+#           ax.set_ylabel('ESM (mm)',fontsize=8)
+#           ax.set_xlim([0, 90])
+#           ax.set_ylim([-15,15])
 
-            for item in ([ax.title, ax.xaxis.label, ax.yaxis.label] +
-                ax.get_xticklabels() + ax.get_yticklabels()):
-                item.set_fontsize(8)
+#           for item in ([ax.title, ax.xaxis.label, ax.yaxis.label] +
+#               ax.get_xticklabels() + ax.get_yticklabels()):
+#               item.set_fontsize(8)
 
-            plt.tight_layout()
+#           plt.tight_layout()
             
             #===========================================================
             # Plot the antenna model before the residuals are added
@@ -1108,7 +1142,7 @@ if __name__ == "__main__":
             #    item.set_fontsize(8)
 
             #plt.tight_layout()
-        plt.show()
+            plt.show()
     #===================================================
     # print the esm model residuals + antenna to an ANTEX file 
     #===================================================
@@ -1119,24 +1153,26 @@ if __name__ == "__main__":
         print("")
         print("Adding the ESM to the antenna PCV model to be saved to:",args.outfile)
         print("")
-        f = open(args.outfile,'w')
-        for m in range(0,num_models):
-            
-            antType = gsf.antennaType( sdata, change['start_yyyy'][m], change['start_ddd'][m] )
-            antenna = ant.antennaType(antType,antennas)
-            print("Model",m+1," is being added to the antenna PCV for:",antType)
-            print_antex_header(antType, change['valid_from'][m],change['valid_to'][m],f)
-            freq_ctr = 0
-            for freq in ['G01','G02'] :
-                pco = antenna['PCO_'+freq]
-                print_start_frequency(freq,pco,f)
-                noazi = np.mean(models[m,:,:,freq_ctr],axis=0)
-                print_antex_noazi(noazi,f)
+        with open(args.outfile,'w') as f:
+            print_antex_file_header(f):
 
-                for i in range(0,int(360./args.esm_grid)+1):
-                    print_antex_line(float(i*args.esm_grid),models[m,i,:,freq_ctr],f)
-                print_end_frequency(freq,f)
-                freq_ctr +=1
-            print_end_antenna(f)
+            for m in range(0,num_models):
+            
+                antType = gsf.antennaType( sdata, change['start_yyyy'][m], change['start_ddd'][m] )
+                antenna = ant.antennaType(antType,antennas)
+                print("Model",m+1," is being added to the antenna PCV for:",antType)
+                print_antex_header(antType, change['valid_from'][m],change['valid_to'][m],f)
+                freq_ctr = 0
+                for freq in ['G01','G02'] :
+                    pco = antenna['PCO_'+freq]
+                    print_start_frequency(freq,pco,f)
+                    noazi = np.mean(models[m,:,:,freq_ctr],axis=0)
+                    print_antex_noazi(noazi,f)
+
+                    for i in range(0,int(360./args.esm_grid)+1):
+                        print_antex_line(float(i*args.esm_grid),models[m,i,:,freq_ctr],f)
+                    print_end_frequency(freq,f)
+                    freq_ctr +=1
+                print_end_antenna(f)
         f.close()
     print("FINISHED")
