@@ -647,6 +647,43 @@ def applyNadirCorrection(svdat,nadirData,site_residuals):
 
     return site_residuals 
 
+def pwl(site_residuals, azSpacing=0.5,zenSpacing=0.5):
+    """
+    PWL piece-wise-linear interpolation fit of phase residuals
+
+    cdata -> compressed data
+    """
+    data = res.reject_outliers_elevation(site_residuals,5,0.5)
+    del site_residuals 
+    print("PWL:",np.shape(data))
+    numd = np.shape(data)[0]
+    print("NUMD:",numd)
+    Neq = np.eye(numd,dtype=float) * 0.01
+    numZD = int(90.0/zenSpacing) + 1
+    Apart = np.zeros((numd,numZD))
+
+    for i in range(0,numd):
+        iz = np.floor(data[i,2]/zenSpacing)
+        Apart[i,iz] = (1.-(data[i,2]-iz*zenSpacing)/zenSpacing)
+        Apart[i,iz+1] = (data[i,2]-iz*zenSpacing)/zenSpacing
+
+    prechi = data[:,3].T * data[:,3]
+    print("prechi:",prechi)
+    Neq = Neq + Apart.T * Apart
+    print("Neq:",np.shape(Neq))
+    Bvec = Apart.T * data[:,3]
+    print("Bvec:",np.shape(Bvec))
+    Cov = np.inv(Neq)
+    print("Cov",np.shape(Cov))
+    Sol = Cov * Bvec
+    print("Sol",np.shape(Sol))
+    postchi = prechi - Bvec.T*Sol
+    print("postchi:",postchi)
+    pwl = Sol
+    print("pwl:",np.shape(pwl))
+    
+    return pwl
+
 #==============================================================================
 #
 # TODO:
@@ -702,7 +739,7 @@ if __name__ == "__main__":
     #===================================================================
     # Start from a consolidated CPH file of the DPH residuals 
     #parser.add_argument('--dph',dest='dphFile')
-    parser.add_argument('--model', dest='model', default=False, action='store_true',help="Create an ESM\n (default = False)")
+    parser.add_argument('--model', dest='model', choices=['blkm','pwl'],help="Create an ESM\n (blkm = block median, pwl = piece wise linear)")
     parser.add_argument('-o','--outfile',help='filename for ESM model (default = antmod.ssss)')
 
     parser.add_argument('--nadir',dest='nadir',help="location of satellite nadir residuals SV_RESIDUALS.ND3")
@@ -912,16 +949,20 @@ if __name__ == "__main__":
             change['valid_from'].append(minVal_dt)
             change['valid_to'].append(maxVal_dt)
 
-            data = np.zeros((np.size(mind),3))
-            data[:,0] = site_residuals[mind,1]
-            data[:,1] = site_residuals[mind,2]
-            data[:,2] = site_residuals[mind,3]
-
             # get the correct antenna type for this station at this time
             antType = gsf.antennaType(sdata,minVal_dt.strftime("%Y"),minVal_dt.strftime("%j"))
             print("get station info:",antType,minVal_dt.strftime("%Y"),minVal_dt.strftime("%j"))
             # do a block median with 5 sigma outlier detection at 0.5 degree grid
-            med, medStd = blockMedian(data)
+            if args.model == 'blkm':
+                data = np.zeros((np.size(mind),3))
+                data[:,0] = site_residuals[mind,1]
+                data[:,1] = site_residuals[mind,2]
+                data[:,2] = site_residuals[mind,3]
+
+                med, medStd = blockMedian(data)
+            elif args.model == 'pwl':
+                pwl_model = pwl(site_residuals)
+
             # check to see if any interpolation needs to be applied
             if args.interpolate == 'ele_mean':
                 med = interpolate_eleMean(med)
