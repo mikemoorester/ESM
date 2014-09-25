@@ -1154,7 +1154,7 @@ if __name__ == "__main__":
         print("Adding the ESM to the antenna PCV model to be saved to:",args.outfile)
         print("")
         with open(args.outfile,'w') as f:
-            print_antex_file_header(f):
+            print_antex_file_header(f)
 
             for m in range(0,num_models):
             
