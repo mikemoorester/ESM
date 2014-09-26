@@ -100,6 +100,12 @@ def reject_outliers_elevation(data,nSigma,zenSpacing=0.5):
 
     return tmp
 
+def reject_absVal(data,val):
+    criterion = ( (data[:,3] > -1. * val) & (data[:,3] < val) )
+    ind = np.array(np.where(criterion))[0]
+    tmp = data[ind,:]
+    return tmp
+
 def parseDPH(dphFile) :
     """
     dph = parseDPH(dphFile)

@@ -474,6 +474,11 @@ def create_esm(med,azGrid,zenGrid,antennas,antType):
                 esm[i,j,1] = L2(az,zen)[0]
             j += 1
         i += 1
+
+        # catch the case where the residuals have not been averaged twice at az = 0
+        # PWL vs block median
+        if i > np.shape(med)[0]-1:
+            i = 0
     #================================================================
     #print("test interpolation for az=>360 zenith =>90 => 13.67:")
     #az = 360.
@@ -650,38 +655,131 @@ def applyNadirCorrection(svdat,nadirData,site_residuals):
 def pwl(site_residuals, azSpacing=0.5,zenSpacing=0.5):
     """
     PWL piece-wise-linear interpolation fit of phase residuals
+    -construct a PWL fit for each azimuth bin, and then paste them all together to get 
+     the full model
+    -inversion is doen within each bin
 
     cdata -> compressed data
     """
-    data = res.reject_outliers_elevation(site_residuals,5,0.5)
+    tdata = res.reject_absVal(site_residuals,100.)
     del site_residuals 
+    data = res.reject_outliers_elevation(tdata,5,0.5)
+    del tdata
+
+    numd = np.shape(data)[0]
+    numZD = int(90.0/zenSpacing) + 1
+    numAZ = int(360./zenSpacing)
+    pwl_All = np.zeros((numAZ,numZD))
+    pwlSig_All = np.zeros((numAZ,numZD))
+
+    for j in range(0,numAZ):
+        # Find only those value within this azimuth bin:
+        if(j - azSpacing/2. < 0) :
+            criterion = (data[:,1] < (j + azSpacing/2.)) | (data[:,1] > (360. - azSpacing/2.) )
+        else:
+            criterion = (data[:,1] < (j + azSpacing/2.)) & (data[:,1] > (j - azSpacing/2.) )
+        ind = np.array(np.where(criterion))[0]
+        azData =data[ind,:]
+        numd = np.shape(azData)[0]
+        #print("NUMD:",numd)
+        if numd < 2:
+            continue
+        #
+        # Neq is acting like a constrain on the model a small value 0.001
+        # let the model vary by 1000 mm
+        # will let it vary more. a large value -> 1 will force the model to be closer to 0
+        Neq = np.eye(numZD,dtype=float) * 0.001
+        #print("Neq",np.shape(Neq))
+        Apart = np.zeros((numd,numZD))
+        #print("Apart:",np.shape(Apart))
+        for i in range(0,numd):
+            iz = np.floor(azData[i,2]/zenSpacing)
+            Apart[i,iz] = (1.-(azData[i,2]-iz*zenSpacing)/zenSpacing)
+            Apart[i,iz+1] = (azData[i,2]-iz*zenSpacing)/zenSpacing
+
+        prechi = np.dot(azData[:,3].T,azData[:,3])
+        #print("prechi:",prechi,numd,np.sqrt(prechi/numd))
+
+        Neq = np.add(Neq, np.dot(Apart.T,Apart) )
+        #print("Neq:",np.shape(Neq))
+
+        Bvec = np.dot(Apart.T,azData[:,3])
+        #print("Bvec:",np.shape(Bvec))
+    
+        Cov = np.linalg.pinv(Neq)
+        #print("Cov",np.shape(Cov))
+    
+        Sol = np.dot(Cov,Bvec)
+        #print("Sol",np.shape(Sol))
+    
+        postchi = prechi - np.dot(Bvec.T,Sol)
+        #print("postchi:",postchi)
+    
+        pwl = Sol
+        #print("pwl:",np.shape(pwl))
+    
+        pwlsig = np.sqrt(np.diag(Cov) *postchi/numd)
+        #print("pwlsig",np.shape(pwlsig))
+        
+        print("STATS:",numd,np.sqrt(prechi/numd),np.sqrt(postchi/numd),np.sqrt((prechi-postchi)/numd))
+
+        pwl_All[j,:] = pwl
+        pwlSig_All[j,:] = pwlsig
+
+        del pwl,pwlsig,Cov,Bvec,Neq,Apart,azData,ind
+
+    return pwl_All, pwlSig_All
+
+def pwlELE(site_residuals, azSpacing=0.5,zenSpacing=0.5):
+    """
+    PWL piece-wise-linear interpolation fit of phase residuals
+
+    cdata -> compressed data
+    """
+    tdata = res.reject_absVal(site_residuals,100.)
+    del site_residuals 
+    data = res.reject_outliers_elevation(tdata,5,0.5)
+    del tdata
+
     print("PWL:",np.shape(data))
     numd = np.shape(data)[0]
-    print("NUMD:",numd)
-    Neq = np.eye(numd,dtype=float) * 0.01
     numZD = int(90.0/zenSpacing) + 1
+    print("NUMD:",numd)
+    Neq = np.eye(numZD,dtype=float) * 0.01
+    print("Neq",np.shape(Neq))
     Apart = np.zeros((numd,numZD))
+    print("Apart:",np.shape(Apart))
 
     for i in range(0,numd):
         iz = np.floor(data[i,2]/zenSpacing)
         Apart[i,iz] = (1.-(data[i,2]-iz*zenSpacing)/zenSpacing)
         Apart[i,iz+1] = (data[i,2]-iz*zenSpacing)/zenSpacing
 
-    prechi = data[:,3].T * data[:,3]
-    print("prechi:",prechi)
-    Neq = Neq + Apart.T * Apart
+    prechi = np.dot(data[:,3].T,data[:,3])
+    print("prechi:",prechi,numd,np.sqrt(prechi/numd))
+
+    Neq = np.add(Neq, np.dot(Apart.T,Apart) )
     print("Neq:",np.shape(Neq))
-    Bvec = Apart.T * data[:,3]
+
+    Bvec = np.dot(Apart.T,data[:,3])
     print("Bvec:",np.shape(Bvec))
-    Cov = np.inv(Neq)
+    
+    Cov = np.linalg.pinv(Neq)
     print("Cov",np.shape(Cov))
-    Sol = Cov * Bvec
+    
+    Sol = np.dot(Cov,Bvec)
     print("Sol",np.shape(Sol))
-    postchi = prechi - Bvec.T*Sol
+    
+    postchi = prechi - np.dot(Bvec.T,Sol)
     print("postchi:",postchi)
+    
     pwl = Sol
     print("pwl:",np.shape(pwl))
     
+    pwlsig = np.sqrt(np.diag(Cov) *postchi/numd)
+    print("pwlsig",np.shape(pwlsig))
+
+    print("STATS:",numd,np.sqrt(prechi/numd),np.sqrt(postchi/numd),np.sqrt((prechi-postchi)/numd))
     return pwl
 
 #==============================================================================
@@ -960,12 +1058,14 @@ if __name__ == "__main__":
                 data[:,2] = site_residuals[mind,3]
 
                 med, medStd = blockMedian(data)
+                print("BLKM:",np.shape(med))
             elif args.model == 'pwl':
-                pwl_model = pwl(site_residuals)
-
+                med,pwl_sig = pwl(site_residuals)
+                print("PWL:",np.shape(med))
             # check to see if any interpolation needs to be applied
             if args.interpolate == 'ele_mean':
                 med = interpolate_eleMean(med)
+                print("BLKM:",np.shape(med))
 
             # Take the block median residuals and add them to the ANTEX file
             esm = create_esm(med, 0.5, 0.5, antennas,antType)
