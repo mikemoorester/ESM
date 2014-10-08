@@ -83,7 +83,8 @@ def reject_outliers_elevation(data,nSigma,zenSpacing=0.5):
         criterion = ( (data[:,2] < (z + zenSpacing/2.)) &
                       (data[:,2] > (z - zenSpacing/2.)) )
         ind = np.array(np.where(criterion))[0]
-
+        if ind.size < 1:
+            continue
         tdata = np.zeros((np.size(ind),3))
         tdata = data[ind,:]
 
@@ -91,7 +92,7 @@ def reject_outliers_elevation(data,nSigma,zenSpacing=0.5):
                   (data[ind,3] > (data[ind,3].mean() - data[ind,3].std() * nSigma)) )
         rout = np.array(np.where(criterion))[0]
 
-        # if its the first interation initialise tmp
+        # if its the first iteration initialise tmp
         if init == 0 and np.size(rout) > 0:
             tmp = tdata[rout,:]
             init = 1

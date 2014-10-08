@@ -8,10 +8,15 @@ import numpy as np
 import re
 import gzip
 import calendar
+import os, sys
+import datetime as dt
 
 from scipy import interpolate
 from scipy.stats.stats import nanmean, nanmedian, nanstd
+from scipy import sparse
+from scipy import stats
 
+import statsmodels.api as sm
 import antenna as ant
 import residuals as res
 import gpsTime as gt
@@ -19,9 +24,28 @@ import GamitStationFile as gsf
 import time
 import svnav
 
-import os, sys
-import datetime as dt
+def loglikelihood(meas,model):
+#def loglikelihood(meas,model,sd):
+    # Calculate negative log likelihood
+    #LL = -np.sum( stats.norm.logpdf(meas, loc=model, scale=sd ) )
+    n2 = np.size(meas)/2.
+    tmp = np.subtract(meas,model)
+    SSR = np.dot(tmp.T,tmp)
+    LL = -np.log(SSR)*n2
+    LL -= (1+np.log(np.pi/n2) )*n2
+    return LL
 
+def calcAIC(llh,dof):
+    aic = -2.*llh + 2.*(dof)
+    return aic
+
+# small number of observations
+def calcAICC(llh,dof,numObs):
+    return -2. * llh + 2. * dof * numObs / (numObs - dof - 1.)
+
+def calcBIC(llh,dof,numObs):
+    bic = -2.*llh + np.log(numObs) * dof
+    return bic
 
 def reject_outliers(data, m=5):
     return data[abs(data - np.mean(data)) < m * np.std(data)]
@@ -652,6 +676,144 @@ def applyNadirCorrection(svdat,nadirData,site_residuals):
 
     return site_residuals 
 
+#def krig(site_residuals):
+
+def pwlFly(site_residuals, azSpacing=0.5,zenSpacing=0.5):
+    """
+    PWL piece-wise-linear interpolation fit of phase residuals
+    -construct a PWL fit for each azimuth bin, and then paste them all together to get 
+     the full model
+    -inversion is doen within each bin
+
+    cdata -> compressed data
+    """
+    tdata = res.reject_absVal(site_residuals,100.)
+    del site_residuals 
+    data = res.reject_outliers_elevation(tdata,5,0.5)
+    del tdata
+
+    numd = np.shape(data)[0]
+    numZD = int(90.0/zenSpacing) + 1
+    numAZ = int(360./zenSpacing)
+    pwl_All = np.zeros((numAZ,numZD))
+    pwlSig_All = np.zeros((numAZ,numZD))
+    #A_complete = sparse.lil_matrix((numd,numAZ*numZD))
+    Bvec_complete = []
+    Sol_complete = []
+    meas_complete = []
+    model_complete = []
+    postchis = []
+    prechis = []
+    aics = []
+    bics = []
+    #w = 1;
+
+    for j in range(0,numAZ):
+        # Find only those value within this azimuth bin:
+        if(j - azSpacing/2. < 0) :
+            criterion = (data[:,1] < (j + azSpacing/2.)) | (data[:,1] > (360. - azSpacing/2.) )
+        else:
+            criterion = (data[:,1] < (j + azSpacing/2.)) & (data[:,1] > (j - azSpacing/2.) )
+        ind = np.array(np.where(criterion))[0]
+        azData =data[ind,:]
+        numd = np.shape(azData)[0]
+        #print("NUMD:",numd)
+        if numd < 2:
+            continue
+        #
+        # Neq is acting like a constrain on the model a small value 0.001
+        # let the model vary by 1000 mm
+        # will let it vary more. a large value -> 1 will force the model to be closer to 0
+        # This gets too large for lots of observations, s best to doit on the fly..
+        #
+        Neq = np.eye(numZD,dtype=float)# * 0.001
+        Apart = np.zeros((numd,numZD))
+
+        for i in range(0,numd):
+            iz = int(np.floor(azData[i,2]/zenSpacing))
+            Apart[i,iz] = (1.-(azData[i,2]-iz*zenSpacing)/zenSpacing)
+            Apart[i,iz+1] = (azData[i,2]-iz*zenSpacing)/zenSpacing
+            #A_complete[i,j*numZD+iz] = Apart[i,iz]
+            #A_complete[i,j*numZD+iz+1] = Apart[i,iz+1]
+            w = np.sin(data[i,2]/180.*np.pi)
+            for k in range(iz,iz+2):
+                for l in range(iz,iz+2):
+                    Neq[k,l] = Neq[k,l] + (Apart[i,l]*Apart[i,k]) * 1./w**2
+
+        prechi = np.dot(azData[:,3].T,azData[:,3])
+
+        Bvec = np.dot(Apart.T,azData[:,3])
+        for val in Bvec:
+            Bvec_complete.append(val)
+
+        Cov = np.linalg.pinv(Neq)
+        Sol = np.dot(Cov,Bvec)
+        for val in Sol:
+            Sol_complete.append(val)
+
+        #Qxx = np.dot(Apart.T,Apart)
+        #Qvv = np.subtract( np.eye(numd) , np.dot(np.dot(Apart,Qxx),Apart.T))
+        #sd = np.squeeze(np.diag(Qvv))
+        #dx = np.dot(np.linalg.pinv(Qxx),Bvec)
+        #dl = np.dot(Apart,dx)
+        #print(numd,"Qxx:",np.shape(Qxx),"Qvv:",np.shape(Qvv),"dx",np.shape(dx),"dl",np.shape(dl))
+        #print("data:",azData[0:5,2])
+        #print("data:",azData[0:5,3])
+        #print("model:",dl[0:5])
+
+        postchi = prechi - np.dot(Bvec.T,Sol)
+        postchis.append(np.sqrt(postchi/numd))
+        prechis.append(np.sqrt(prechi/numd))
+        pwlsig = np.sqrt(np.diag(Cov) *postchi/numd)
+
+        #print("pwlsig:",np.shape(pwlsig))
+        # calculate the model values for each obs
+        model = np.dot(Apart,Sol) #np.zeros(numd)
+        for d in range(0,numd):
+            model_complete.append(model[d])
+            meas_complete.append(azData[d,3])
+        #    zen = azData[d,2]
+        #    iz = int(np.floor(azData[d,2]/zenSpacing))
+        #    #model[d] = Sol[iz]
+        #    print("Data: Zen iz",zen,iz,azData[d,3],"Model:",model[d])
+
+        #print("STATS:",numd,np.sqrt(prechi/numd),np.sqrt(postchi/numd),np.sqrt((prechi-postchi)/numd),gls_results.rsquared,gls_results.aic,gls_results.bic)
+       
+        # loglikelihood(meas,model,sd)
+        #sd = np.squeeze(np.diag(Qvv))
+        #print("meas, model, sd:",np.shape(azData),np.shape(model),np.shape(sd))
+        f = loglikelihood(azData[:,3],model)
+        dof = numd - np.shape(Sol)[0]
+        aic = calcAIC(f,dof)
+        bic = calcBIC(f,dof,numd)
+        aics.append(aic)    
+        bics.append(bic)    
+        #print("Log sm:",tmp.llf,tmp.aic,tmp.bic)
+        #print("My version:",f,aic,bic,np.std(azData[:,3]))
+        #print("=========================")
+        pwl_All[j,:] = Sol 
+        pwlSig_All[j,:] = pwlsig
+        #gls_model = sm.OLS(Bvec,Apart)
+
+        del Sol,pwlsig,Cov,Bvec,Neq,Apart,azData,ind
+
+    #A_complete = np.squeeze(np.asarray(A_complete.todense()))
+    #print("A shape",np.shape(A_complete))
+
+    print("Doing a fit to the data")
+    f = loglikelihood(np.array(meas_complete),np.array(model_complete))
+    numd = np.size(meas_complete)
+    dof = numd - np.shape(Sol_complete)[0]
+    aic = calcAIC(f,dof)
+    bic = calcBIC(f,dof,numd)
+    #prechi = np.dot(data[:,3].T,data[:,3])
+    prechi = np.dot(np.array(meas_complete).T,np.array(meas_complete))
+    postchi = prechi - np.dot(np.array(Bvec_complete).T,np.array(Sol_complete))
+    #print("My loglikelihood:",f,aic,bic,dof,numd)
+    print("STATS:",numd,np.sqrt(prechi/numd),np.sqrt(postchi/numd),np.sqrt((prechi-postchi)/numd),aic,bic)
+
+    return pwl_All, pwlSig_All
+
 def pwl(site_residuals, azSpacing=0.5,zenSpacing=0.5):
     """
     PWL piece-wise-linear interpolation fit of phase residuals
@@ -665,6 +827,11 @@ def pwl(site_residuals, azSpacing=0.5,zenSpacing=0.5):
     del site_residuals 
     data = res.reject_outliers_elevation(tdata,5,0.5)
     del tdata
+
+    Bvec_complete = []
+    Sol_complete = []
+    model_complete = []
+    meas_complete = []
 
     numd = np.shape(data)[0]
     numZD = int(90.0/zenSpacing) + 1
@@ -684,50 +851,58 @@ def pwl(site_residuals, azSpacing=0.5,zenSpacing=0.5):
         #print("NUMD:",numd)
         if numd < 2:
             continue
-        #
+
         # Neq is acting like a constrain on the model a small value 0.001
         # let the model vary by 1000 mm
         # will let it vary more. a large value -> 1 will force the model to be closer to 0
         Neq = np.eye(numZD,dtype=float) * 0.001
-        #print("Neq",np.shape(Neq))
         Apart = np.zeros((numd,numZD))
-        #print("Apart:",np.shape(Apart))
+
         for i in range(0,numd):
             iz = np.floor(azData[i,2]/zenSpacing)
             Apart[i,iz] = (1.-(azData[i,2]-iz*zenSpacing)/zenSpacing)
             Apart[i,iz+1] = (azData[i,2]-iz*zenSpacing)/zenSpacing
 
         prechi = np.dot(azData[:,3].T,azData[:,3])
-        #print("prechi:",prechi,numd,np.sqrt(prechi/numd))
 
         Neq = np.add(Neq, np.dot(Apart.T,Apart) )
-        #print("Neq:",np.shape(Neq))
-
         Bvec = np.dot(Apart.T,azData[:,3])
-        #print("Bvec:",np.shape(Bvec))
-    
+        for val in Bvec:
+            Bvec_complete.append(val)
         Cov = np.linalg.pinv(Neq)
-        #print("Cov",np.shape(Cov))
-    
         Sol = np.dot(Cov,Bvec)
-        #print("Sol",np.shape(Sol))
-    
-        postchi = prechi - np.dot(Bvec.T,Sol)
-        #print("postchi:",postchi)
-    
-        pwl = Sol
-        #print("pwl:",np.shape(pwl))
-    
-        pwlsig = np.sqrt(np.diag(Cov) *postchi/numd)
-        #print("pwlsig",np.shape(pwlsig))
-        
-        print("STATS:",numd,np.sqrt(prechi/numd),np.sqrt(postchi/numd),np.sqrt((prechi-postchi)/numd))
+        for val in Sol:
+            Sol_complete.append(val)
 
-        pwl_All[j,:] = pwl
+        postchi = prechi - np.dot(Bvec.T,Sol)
+        pwlsig = np.sqrt(np.diag(Cov) *postchi/numd)
+        
+        model = np.dot(Apart,Sol)
+        f = loglikelihood(azData[:,3],model)
+        dof = numd - np.shape(Sol)[0]
+        aic = calcAIC(f,dof)
+        bic = calcBIC(f,dof,numd)
+        #print("STATS:",numd,np.sqrt(prechi/numd),np.sqrt(postchi/numd),np.sqrt((prechi-postchi)/numd),aic,bic)
+
+        for d in range(0,numd):
+            meas_complete.append(azData[d,3])
+            model_complete.append(model[d])
+
+        pwl_All[j,:] = Sol 
         pwlSig_All[j,:] = pwlsig
 
-        del pwl,pwlsig,Cov,Bvec,Neq,Apart,azData,ind
+        del Sol,pwlsig,Cov,Bvec,Neq,Apart,azData,ind
 
+    f = loglikelihood(np.array(meas_complete),np.array(model_complete))
+    numd = np.size(meas_complete)
+    dof = numd - np.shape(Sol_complete)[0]
+    aic = calcAIC(f,dof)
+    bic = calcBIC(f,dof,numd)
+    #prechi = np.dot(data[:,3].T,data[:,3])
+    prechi = np.dot(np.array(meas_complete).T,np.array(meas_complete))
+    postchi = prechi - np.dot(np.array(Bvec_complete).T,np.array(Sol_complete))
+    #print("My loglikelihood:",f,aic,bic,dof,numd)
+    print("STATS:",numd,np.sqrt(prechi/numd),np.sqrt(postchi/numd),np.sqrt((prechi-postchi)/numd),aic,bic)
     return pwl_All, pwlSig_All
 
 def pwlELE(site_residuals, azSpacing=0.5,zenSpacing=0.5):
@@ -741,46 +916,209 @@ def pwlELE(site_residuals, azSpacing=0.5,zenSpacing=0.5):
     data = res.reject_outliers_elevation(tdata,5,0.5)
     del tdata
 
-    print("PWL:",np.shape(data))
     numd = np.shape(data)[0]
     numZD = int(90.0/zenSpacing) + 1
-    print("NUMD:",numd)
+
     Neq = np.eye(numZD,dtype=float) * 0.01
-    print("Neq",np.shape(Neq))
+    #print("Neq",np.shape(Neq))
     Apart = np.zeros((numd,numZD))
-    print("Apart:",np.shape(Apart))
+    #print("Apart:",np.shape(Apart))
+    sd = np.zeros(numd)
 
     for i in range(0,numd):
         iz = np.floor(data[i,2]/zenSpacing)
+        sd[i] = np.sin(data[i,2]/180.*np.pi)
         Apart[i,iz] = (1.-(data[i,2]-iz*zenSpacing)/zenSpacing)
         Apart[i,iz+1] = (data[i,2]-iz*zenSpacing)/zenSpacing
 
     prechi = np.dot(data[:,3].T,data[:,3])
-    print("prechi:",prechi,numd,np.sqrt(prechi/numd))
+    #print("prechi:",prechi,numd,np.sqrt(prechi/numd))
 
     Neq = np.add(Neq, np.dot(Apart.T,Apart) )
-    print("Neq:",np.shape(Neq))
+    #print("Neq:",np.shape(Neq))
 
     Bvec = np.dot(Apart.T,data[:,3])
-    print("Bvec:",np.shape(Bvec))
+    #print("Bvec:",np.shape(Bvec))
     
     Cov = np.linalg.pinv(Neq)
-    print("Cov",np.shape(Cov))
+    #print("Cov",np.shape(Cov))
     
     Sol = np.dot(Cov,Bvec)
-    print("Sol",np.shape(Sol))
+    #print("Sol",np.shape(Sol))
     
     postchi = prechi - np.dot(Bvec.T,Sol)
-    print("postchi:",postchi)
+    #print("postchi:",postchi)
     
     pwl = Sol
-    print("pwl:",np.shape(pwl))
+    #print("pwl:",np.shape(pwl))
     
     pwlsig = np.sqrt(np.diag(Cov) *postchi/numd)
-    print("pwlsig",np.shape(pwlsig))
+    #print("pwlsig",np.shape(pwlsig))
 
-    print("STATS:",numd,np.sqrt(prechi/numd),np.sqrt(postchi/numd),np.sqrt((prechi-postchi)/numd))
-    return pwl
+    model = np.dot(Apart,Sol)
+    f = loglikelihood(data[:,3],model)
+    dof = numd - np.shape(Sol)[0]
+    aic = calcAIC(f,dof)
+    bic = calcBIC(f,dof,numd)
+    #print("My loglikelihood:",f,aic,bic,dof,numd)
+    print("STATS:",numd,np.sqrt(prechi/numd),np.sqrt(postchi/numd),np.sqrt((prechi-postchi)/numd),aic,bic)
+
+    return pwl,pwlsig
+
+def meanAdjust(site_residuals, azSpacing=0.5,zenSpacing=0.5):
+    """
+    PWL piece-wise-linear interpolation fit of phase residuals
+    -construct a PWL fit for each azimuth bin, and then paste them all together to get 
+     the full model
+    -inversion is doen within each bin
+
+    cdata -> compressed data
+    """
+    tdata = res.reject_absVal(site_residuals,100.)
+    del site_residuals 
+    data = res.reject_outliers_elevation(tdata,5,0.5)
+    del tdata
+
+    numd = np.shape(data)[0]
+    numZD = int(90.0/zenSpacing) + 1
+    numAZ = int(360./zenSpacing)
+    pwl_All = np.zeros((numAZ,numZD))
+    pwlSig_All = np.zeros((numAZ,numZD))
+    postchis = []
+    prechis = []
+    model_complete = []
+    meas_complete = []
+    Bvec_complete = []
+    Sol_complete = []
+
+    for j in range(0,numAZ):
+        # Find only those value within this azimuth bin:
+        if(j - azSpacing/2. < 0) :
+            criterion = (data[:,1] < (j + azSpacing/2.)) | (data[:,1] > (360. - azSpacing/2.) )
+        else:
+            criterion = (data[:,1] < (j + azSpacing/2.)) & (data[:,1] > (j - azSpacing/2.) )
+        ind = np.array(np.where(criterion))[0]
+        azData =data[ind,:]
+        numd = np.shape(azData)[0]
+
+        if numd < 2:
+            continue
+
+        Neq = np.eye(numZD,dtype=float) * 0.001
+        Apart = np.zeros((numd,numZD))
+        for i in range(0,numd):
+            iz = int(np.floor(azData[i,2]/zenSpacing))
+            Apart[i,iz] = 1.
+
+        prechi = np.dot(azData[:,3].T,azData[:,3])
+
+        Neq = np.add(Neq, np.dot(Apart.T,Apart) )
+        Bvec = np.dot(Apart.T,azData[:,3])
+        for val in Bvec:
+            Bvec_complete.append(val)
+
+        Cov = np.linalg.pinv(Neq)
+        Sol = np.dot(Cov,Bvec)
+        for val in Sol:
+            Sol_complete.append(val)
+
+        postchi = prechi - np.dot(Bvec.T,Sol)
+        pwlsig = np.sqrt(np.diag(Cov) *postchi/numd)
+       
+        prechis.append(np.sqrt(prechi/numd))
+        postchis.append(np.sqrt(postchi/numd))
+        #print("STATS:",numd,np.sqrt(prechi/numd),np.sqrt(postchi/numd),np.sqrt((prechi-postchi)/numd))
+        model = np.dot(Apart,Sol)
+
+        for d in range(0,numd):
+            model_complete.append(model[d])
+            meas_complete.append(azData[d,3])
+        pwl_All[j,:] = Sol 
+        pwlSig_All[j,:] = pwlsig
+
+        del Sol,pwlsig,Cov,Bvec,Neq,Apart,azData,ind
+
+    #overallPrechi = np.dot(data[:,3].T,data[:,3])
+    numd = np.size(meas_complete)
+    #print("OVERALL STATS:", np.mean(prechis),np.mean(postchis),np.sqrt(overallPrechi/numD))
+    #prechi = np.dot(data[:,3].T,data[:,3])
+    prechi = np.dot(np.array(meas_complete).T,np.array(meas_complete))
+    postchi = prechi - np.dot(np.array(Bvec_complete).T,np.array(Sol_complete))
+    f = loglikelihood(meas_complete,model_complete)
+    dof = numd - np.shape(Sol_complete)[0]
+    aic = calcAIC(f,dof)
+    bic = calcBIC(f,dof,numd)
+    #print("My loglikelihood:",f,aic,bic,dof,numd)
+    print("STATS:",numd,np.sqrt(prechi/numd),np.sqrt(postchi/numd),np.sqrt((prechi-postchi)/numd),aic,bic)
+
+    return pwl_All, pwlSig_All
+
+def meanAdjustELE(site_residuals, azSpacing=0.5,zenSpacing=0.5):
+    """
+    PWL piece-wise-linear interpolation fit of phase residuals
+    -construct a PWL fit for each azimuth bin, and then paste them all together to get 
+     the full model
+    -inversion is doen within each bin
+
+    cdata -> compressed data
+    """
+    tdata = res.reject_absVal(site_residuals,100.)
+    del site_residuals 
+    data = res.reject_outliers_elevation(tdata,5,0.5)
+    del tdata
+
+    numd = np.shape(data)[0]
+    numZD = int(90.0/zenSpacing) + 1
+    numAZ = int(360./zenSpacing)
+    pwl_All = np.zeros((numAZ,numZD))
+    pwlSig_All = np.zeros((numAZ,numZD))
+    postchis = []
+    prechis = []
+
+    for j in range(0,numZD):
+        # Find only those value within this azimuth bin:
+        if(j - azSpacing/2. < 0) :
+            criterion = (data[:,2] < (j + zenSpacing/2.)) | (data[:,2] > (360. - zenSpacing/2.) )
+        else:
+            criterion = (data[:,2] < (j + zenSpacing/2.)) & (data[:,2] > (j - zenSpacing/2.) )
+        ind = np.array(np.where(criterion))[0]
+        zdData =data[ind,:]
+        numd = np.shape(zdData)[0]
+
+        if numd < 2:
+            continue
+
+        Neq = np.eye(numAZ,dtype=float) * 0.001
+        Apart = np.zeros((numd,numAZ))
+        for i in range(0,numd):
+            iaz = int(np.floor(zdData[i,1]/azSpacing))
+            Apart[i,iaz] = 1.
+
+        prechi = np.dot(zdData[:,3].T,zdData[:,3])
+
+        Neq = np.add(Neq, np.dot(Apart.T,Apart) )
+        Bvec = np.dot(Apart.T,zdData[:,3])
+        
+        Cov = np.linalg.pinv(Neq)
+        Sol = np.dot(Cov,Bvec)
+
+        postchi = prechi - np.dot(Bvec.T,Sol)
+        pwlsig = np.sqrt(np.diag(Cov) *postchi/numd)
+       
+        prechis.append(np.sqrt(prechi/numd))
+        postchis.append(np.sqrt(postchi/numd))
+        print("STATS:",numd,np.sqrt(prechi/numd),np.sqrt(postchi/numd),np.sqrt((prechi-postchi)/numd))
+
+        pwl_All[:,j] = Sol.T 
+        pwlSig_All[:,j] = pwlsig.T
+
+        del Sol,pwlsig,Cov,Bvec,Neq,Apart,zdData,ind
+
+    overallPrechi = np.dot(data[:,3].T,data[:,3])
+    #postchi = prechi - np.dot(Bvec.T,Sol)
+    numD = np.shape(data)[0]
+    print("OVERALL STATS:", np.mean(prechis),np.mean(postchis),np.sqrt(overallPrechi/numD))
+    return pwl_All, pwlSig_All
 
 #==============================================================================
 #
@@ -837,7 +1175,7 @@ if __name__ == "__main__":
     #===================================================================
     # Start from a consolidated CPH file of the DPH residuals 
     #parser.add_argument('--dph',dest='dphFile')
-    parser.add_argument('--model', dest='model', choices=['blkm','pwl'],help="Create an ESM\n (blkm = block median, pwl = piece wise linear)")
+    parser.add_argument('--model', dest='model', choices=['blkm','pwl','blkmadj'],help="Create an ESM\n (blkm = block median, pwl = piece wise linear)")
     parser.add_argument('-o','--outfile',help='filename for ESM model (default = antmod.ssss)')
 
     parser.add_argument('--nadir',dest='nadir',help="location of satellite nadir residuals SV_RESIDUALS.ND3")
@@ -943,7 +1281,6 @@ if __name__ == "__main__":
             # Plot the satellites by block
             blocks = np.unique(nadir[:,])
             plt.show()
-
     
         if args.nadirModel:
             # read in the antenna satellite model
@@ -1060,8 +1397,14 @@ if __name__ == "__main__":
                 med, medStd = blockMedian(data)
                 print("BLKM:",np.shape(med))
             elif args.model == 'pwl':
-                med,pwl_sig = pwl(site_residuals)
+                med,pwl_sig = pwl(site_residuals,args.esm_grid,args.esm_grid)
+                #med,pwl_sig = pwlFly(site_residuals,args.esm_grid,args.esm_grid)
+                #med, pwl_sig = pwlELE(site_residuals,args.esm_grid,args.esm_grid)
                 print("PWL:",np.shape(med))
+            elif args.model == 'blkmadj':
+                med, medStd = meanAdjust(site_residuals,args.esm_grid,args.esm_grid)
+                #med, medStd = meanAdjustELE(site_residuals)
+
             # check to see if any interpolation needs to be applied
             if args.interpolate == 'ele_mean':
                 med = interpolate_eleMean(med)

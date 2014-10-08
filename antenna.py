@@ -4,6 +4,7 @@ from __future__ import division, print_function, absolute_import
 import numpy as np
 import string as s
 import re
+import datetime as dt
 
 import gpsTime as gt
 
@@ -424,6 +425,57 @@ def antennaScode(SatCode,antennas):
     print('Could not find <'+SatCode+'>') 
     return -1
 
+#def antennaValid(antenna,dto):
+#    """
+#    bool = antennaValid(antenna,dto)
+#
+#    Check to see if an antenna is valid at a particular epoch 
+#
+#    """
+#    vfrom = dt.datetime(int(antenna['validFrom'][0]),int(antenna['validFrom'][1]),int(antenna['validFrom'][2]))
+#    if dto > vfrom:
+#        #print("dto > vfrom:",dto,vfrom,antenna['scode'])
+#        if np.size(antenna['validTo']) < 1 or antenna['validTo'] == [] :
+#            return True
+#        vto = dt.datetime(int(antenna['validTo'][0]),int(antenna['validTo'][1]),int(antenna['validTo'][2]))
+#        if dto < vto:
+#            return True
+#    print("Rejecting:",antenna['validFrom'],antenna['validTo'],dto,antenna['scode'])
+#    return False
+
+def antennaValid(antenna,dts,dte):
+    """
+    bool = antennaValid(antenna,dts,dte)
+
+    Check to see if an antenna is valid at a particular epoch 
+
+    """
+    vfrom = dt.datetime(int(antenna['validFrom'][0]),int(antenna['validFrom'][1]),int(antenna['validFrom'][2]))
+    if dte > vfrom:
+        #print("dto > vfrom:",dto,vfrom,antenna['scode'])
+        if np.size(antenna['validTo']) < 1 or antenna['validTo'] == [] :
+            return True
+        vto = dt.datetime(int(antenna['validTo'][0]),int(antenna['validTo'][1]),int(antenna['validTo'][2]))
+        if dts < vto:
+            return True
+    #print("Rejecting:",antenna['validFrom'],antenna['validTo'],dto,antenna['scode'])
+    return False
+
+def satSearch(antennas,dts,dte):
+
+    GPSSatsRGX = re.compile('G\d\d')
+    found = []
+    for antenna in antennas:
+        # check we have a GPS satellite
+        if GPSSatsRGX.search(antenna['serialNum']) :
+            # check it the satellte was valid at the time
+            #if antennaValid(antenna,dts) or antennaValid(antenna,dte):
+            if antennaValid(antenna,dts,dte):
+                #print("Found:",antenna['scode'])
+                found.append(antenna['scode'].rstrip())
+
+    return found 
+
 def printAntexHeader(f):
 
     print('     1.4            M                                       ANTEX VERSION / SYST',file=f)
@@ -518,8 +570,14 @@ if __name__ == "__main__":
 
     parser.add_argument('-t', '--AntType',dest='AntType', default='ASH701945C_M    NONE')
     parser.add_argument('-s', '--AntSerial',dest='AntSerial')
+
     parser.add_argument('--SCODE',dest='SatCode')
-    #parser.add_argument('-t', '--AntType',dest='AntType', default='TRM59800.00     NONE')
+    parser.add_argument('--search',dest='SatSearch',default=False,action='store_true',help='Look for all sats operational during a time frame')
+
+    parser.add_argument("--syyyy",dest="syyyy",type=int,default=1994,help="Start yyyy")
+    parser.add_argument("--sdoy","--sddd",dest="sdoy",type=int,default=0,help="Start doy")
+    parser.add_argument("--eyyyy",dest="eyyyy",type=int,default=2014,help="End yyyyy")
+    parser.add_argument("--edoy","--eddd",dest="edoy",type=int,default=365,help="End doy")
 
     parser.add_argument('-p', '--plot',dest='plot', default=False, action='store_true')
     parser.add_argument('--polar',dest='polar', default=False, action='store_true')
@@ -536,6 +594,13 @@ if __name__ == "__main__":
         antenna = antennaTypeSerial(args.AntType,args.AntSerial,antennas)
     elif args.SatCode:
         antenna = antennaTypeScode(args.AntType,args.SatCode,antennas)
+    # Only works for GPS...
+    elif args.SatSearch:
+        sdto = dt.datetime(int(args.syyyy),01,01) + dt.timedelta(days=int(args.sdoy))
+        edto = dt.datetime(int(args.eyyyy),01,01) + dt.timedelta(days=int(args.edoy))
+        svs = satSearch(antennas,sdto,edto) 
+        svs = np.unique(svs)
+        print("Found ",np.size(svs),"SVS",svs)
     else:
         antenna = antennaType(args.AntType,antennas)
     #print("Found:",antenna)    

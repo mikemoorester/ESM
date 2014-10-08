@@ -52,6 +52,14 @@ def findSV_DTO(svnav,prn,dto) :
        
     return sv
 
+def searchSNAV_timeSpan(svnav_data,sdto,edto):
+    svs = []
+    for record in svnav_data:
+        if record['date'] < edto and record['date'] > sdto :
+            svs.append(int(record['sv']))
+
+    return np.unique(svs)
+
 def findBLK_SV(svnav,sv):
     blk = -1
     sv = int(sv)
@@ -98,10 +106,24 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(prog='autclnParse',description='Read in the autcln post fit summary file')
 
     parser.add_argument("-f", "--filename", dest="filename", help="Autcln post fit summary file")
+
+    parser.add_argument("--syyyy",dest="syyyy",type=int,default=1994,help="Start yyyy")
+    parser.add_argument("--sdoy",dest="sdoy",type=int,default=0,help="Start doy")
+    parser.add_argument("--eyyyy",dest="eyyyy",type=int,default=2014,help="End yyyyy")
+    parser.add_argument("--edoy",dest="edoy",type=int,default=365,help="End doy")
+
+    parser.add_argument("--search",dest="search",default=False,action='store_true',help="")
+
     args = parser.parse_args()
     #===================================
-   
-    if args.filename :
+  
+    if args.search and args.filename:
+        svnav = parseSVNAV(args.filename)
+        sdto = dt.datetime(int(args.syyyy),01,01) + dt.timedelta(days=int(args.sdoy)-1)
+        edto = dt.datetime(int(args.eyyyy),01,01) + dt.timedelta(days=int(args.edoy)-1)
+        svs = searchSNAV_timeSpan(svnav,sdto,edto)
+        print("SVS:",svs)
+    elif args.filename :
         svnav = parseSVNAV(args.filename)
         #print("SVNAV:",svnav)
         dto = dt.datetime(2012,06,01)
