@@ -16,7 +16,7 @@ from scipy.stats.stats import nanmean, nanmedian, nanstd
 from scipy import sparse
 from scipy import stats
 
-import statsmodels.api as sm
+#import statsmodels.api as sm
 import antenna as ant
 import residuals as res
 import gpsTime as gt
@@ -697,7 +697,6 @@ def pwlFly(site_residuals, azSpacing=0.5,zenSpacing=0.5):
     numAZ = int(360./zenSpacing)
     pwl_All = np.zeros((numAZ,numZD))
     pwlSig_All = np.zeros((numAZ,numZD))
-    #A_complete = sparse.lil_matrix((numd,numAZ*numZD))
     Bvec_complete = []
     Sol_complete = []
     meas_complete = []
@@ -733,8 +732,6 @@ def pwlFly(site_residuals, azSpacing=0.5,zenSpacing=0.5):
             iz = int(np.floor(azData[i,2]/zenSpacing))
             Apart[i,iz] = (1.-(azData[i,2]-iz*zenSpacing)/zenSpacing)
             Apart[i,iz+1] = (azData[i,2]-iz*zenSpacing)/zenSpacing
-            #A_complete[i,j*numZD+iz] = Apart[i,iz]
-            #A_complete[i,j*numZD+iz+1] = Apart[i,iz+1]
             w = np.sin(data[i,2]/180.*np.pi)
             for k in range(iz,iz+2):
                 for l in range(iz,iz+2):
@@ -756,17 +753,12 @@ def pwlFly(site_residuals, azSpacing=0.5,zenSpacing=0.5):
         #sd = np.squeeze(np.diag(Qvv))
         #dx = np.dot(np.linalg.pinv(Qxx),Bvec)
         #dl = np.dot(Apart,dx)
-        #print(numd,"Qxx:",np.shape(Qxx),"Qvv:",np.shape(Qvv),"dx",np.shape(dx),"dl",np.shape(dl))
-        #print("data:",azData[0:5,2])
-        #print("data:",azData[0:5,3])
-        #print("model:",dl[0:5])
 
         postchi = prechi - np.dot(Bvec.T,Sol)
         postchis.append(np.sqrt(postchi/numd))
         prechis.append(np.sqrt(prechi/numd))
         pwlsig = np.sqrt(np.diag(Cov) *postchi/numd)
 
-        #print("pwlsig:",np.shape(pwlsig))
         # calculate the model values for each obs
         model = np.dot(Apart,Sol) #np.zeros(numd)
         for d in range(0,numd):
@@ -775,7 +767,6 @@ def pwlFly(site_residuals, azSpacing=0.5,zenSpacing=0.5):
         #    zen = azData[d,2]
         #    iz = int(np.floor(azData[d,2]/zenSpacing))
         #    #model[d] = Sol[iz]
-        #    print("Data: Zen iz",zen,iz,azData[d,3],"Model:",model[d])
 
         #print("STATS:",numd,np.sqrt(prechi/numd),np.sqrt(postchi/numd),np.sqrt((prechi-postchi)/numd),gls_results.rsquared,gls_results.aic,gls_results.bic)
        
@@ -788,12 +779,9 @@ def pwlFly(site_residuals, azSpacing=0.5,zenSpacing=0.5):
         bic = calcBIC(f,dof,numd)
         aics.append(aic)    
         bics.append(bic)    
-        #print("Log sm:",tmp.llf,tmp.aic,tmp.bic)
-        #print("My version:",f,aic,bic,np.std(azData[:,3]))
         #print("=========================")
         pwl_All[j,:] = Sol 
         pwlSig_All[j,:] = pwlsig
-        #gls_model = sm.OLS(Bvec,Apart)
 
         del Sol,pwlsig,Cov,Bvec,Neq,Apart,azData,ind
 
@@ -848,7 +836,6 @@ def pwl(site_residuals, azSpacing=0.5,zenSpacing=0.5):
         ind = np.array(np.where(criterion))[0]
         azData =data[ind,:]
         numd = np.shape(azData)[0]
-        #print("NUMD:",numd)
         if numd < 2:
             continue
 
@@ -878,10 +865,10 @@ def pwl(site_residuals, azSpacing=0.5,zenSpacing=0.5):
         pwlsig = np.sqrt(np.diag(Cov) *postchi/numd)
         
         model = np.dot(Apart,Sol)
-        f = loglikelihood(azData[:,3],model)
-        dof = numd - np.shape(Sol)[0]
-        aic = calcAIC(f,dof)
-        bic = calcBIC(f,dof,numd)
+        #f = loglikelihood(azData[:,3],model)
+        #dof = numd - np.shape(Sol)[0]
+        #aic = calcAIC(f,dof)
+        #bic = calcBIC(f,dof,numd)
         #print("STATS:",numd,np.sqrt(prechi/numd),np.sqrt(postchi/numd),np.sqrt((prechi-postchi)/numd),aic,bic)
 
         for d in range(0,numd):
@@ -893,17 +880,26 @@ def pwl(site_residuals, azSpacing=0.5,zenSpacing=0.5):
 
         del Sol,pwlsig,Cov,Bvec,Neq,Apart,azData,ind
 
+    # Calculate the AIC and BIC values...
     f = loglikelihood(np.array(meas_complete),np.array(model_complete))
     numd = np.size(meas_complete)
     dof = numd - np.shape(Sol_complete)[0]
     aic = calcAIC(f,dof)
     bic = calcBIC(f,dof,numd)
-    #prechi = np.dot(data[:,3].T,data[:,3])
+
     prechi = np.dot(np.array(meas_complete).T,np.array(meas_complete))
     postchi = prechi - np.dot(np.array(Bvec_complete).T,np.array(Sol_complete))
+
     #print("My loglikelihood:",f,aic,bic,dof,numd)
-    print("STATS:",numd,np.sqrt(prechi/numd),np.sqrt(postchi/numd),np.sqrt((prechi-postchi)/numd),aic,bic)
-    return pwl_All, pwlSig_All
+    #print("STATS:",numd,np.sqrt(prechi/numd),np.sqrt(postchi/numd),np.sqrt((prechi-postchi)/numd),aic,bic)
+    stats = {}
+    stats['prechi'] = np.sqrt(prechi/numd)
+    stats['postchi'] = np.sqrt(postchi/numd)
+    stats['chi_inc'] = np.sqrt((prechi-postchi)/numd)
+    stats['aic'] = aic
+    stats['bic'] = bic
+
+    return pwl_All, pwlSig_All, stats
 
 def pwlELE(site_residuals, azSpacing=0.5,zenSpacing=0.5):
     """
@@ -961,9 +957,15 @@ def pwlELE(site_residuals, azSpacing=0.5,zenSpacing=0.5):
     aic = calcAIC(f,dof)
     bic = calcBIC(f,dof,numd)
     #print("My loglikelihood:",f,aic,bic,dof,numd)
-    print("STATS:",numd,np.sqrt(prechi/numd),np.sqrt(postchi/numd),np.sqrt((prechi-postchi)/numd),aic,bic)
+    #print("STATS:",numd,np.sqrt(prechi/numd),np.sqrt(postchi/numd),np.sqrt((prechi-postchi)/numd),aic,bic)
+    stats = {}
+    stats['prechi'] = np.sqrt(prechi/numd)
+    stats['postchi'] = np.sqrt(postchi/numd)
+    stats['chi_inc'] = np.sqrt((prechi-postchi)/numd)
+    stats['aic'] = aic
+    stats['bic'] = bic
 
-    return pwl,pwlsig
+    return pwl,pwlsig,stats
 
 def meanAdjust(site_residuals, azSpacing=0.5,zenSpacing=0.5):
     """
@@ -1049,16 +1051,19 @@ def meanAdjust(site_residuals, azSpacing=0.5,zenSpacing=0.5):
     aic = calcAIC(f,dof)
     bic = calcBIC(f,dof,numd)
     #print("My loglikelihood:",f,aic,bic,dof,numd)
-    print("STATS:",numd,np.sqrt(prechi/numd),np.sqrt(postchi/numd),np.sqrt((prechi-postchi)/numd),aic,bic)
+    #print("STATS:",numd,np.sqrt(prechi/numd),np.sqrt(postchi/numd),np.sqrt((prechi-postchi)/numd),aic,bic)
+    stats = {}
+    stats['prechi'] = np.sqrt(prechi/numd)
+    stats['postchi'] = np.sqrt(postchi/numd)
+    stats['chi_inc'] = np.sqrt((prechi-postchi)/numd)
+    stats['aic'] = aic
+    stats['bic'] = bic
 
-    return pwl_All, pwlSig_All
+    return pwl_All, pwlSig_All,stats
 
 def meanAdjustELE(site_residuals, azSpacing=0.5,zenSpacing=0.5):
     """
     PWL piece-wise-linear interpolation fit of phase residuals
-    -construct a PWL fit for each azimuth bin, and then paste them all together to get 
-     the full model
-    -inversion is doen within each bin
 
     cdata -> compressed data
     """
@@ -1069,56 +1074,43 @@ def meanAdjustELE(site_residuals, azSpacing=0.5,zenSpacing=0.5):
 
     numd = np.shape(data)[0]
     numZD = int(90.0/zenSpacing) + 1
-    numAZ = int(360./zenSpacing)
-    pwl_All = np.zeros((numAZ,numZD))
-    pwlSig_All = np.zeros((numAZ,numZD))
-    postchis = []
-    prechis = []
 
-    for j in range(0,numZD):
-        # Find only those value within this azimuth bin:
-        if(j - azSpacing/2. < 0) :
-            criterion = (data[:,2] < (j + zenSpacing/2.)) | (data[:,2] > (360. - zenSpacing/2.) )
-        else:
-            criterion = (data[:,2] < (j + zenSpacing/2.)) & (data[:,2] > (j - zenSpacing/2.) )
-        ind = np.array(np.where(criterion))[0]
-        zdData =data[ind,:]
-        numd = np.shape(zdData)[0]
+    Neq = np.eye(numZD,dtype=float) * 0.01
+    Apart = np.zeros((numd,numZD))
+    sd = np.zeros(numd)
 
-        if numd < 2:
-            continue
+    for i in range(0,numd):
+        iz = np.floor(data[i,2]/zenSpacing)
+        sd[i] = np.sin(data[i,2]/180.*np.pi)
+        Apart[i,iz] = 1.#-(data[i,2]-iz*zenSpacing)/zenSpacing)
 
-        Neq = np.eye(numAZ,dtype=float) * 0.001
-        Apart = np.zeros((numd,numAZ))
-        for i in range(0,numd):
-            iaz = int(np.floor(zdData[i,1]/azSpacing))
-            Apart[i,iaz] = 1.
+    prechi = np.dot(data[:,3].T,data[:,3])
+    Neq = np.add(Neq, np.dot(Apart.T,Apart) )
+    Bvec = np.dot(Apart.T,data[:,3])
+    Cov = np.linalg.pinv(Neq)
+    
+    Sol = np.dot(Cov,Bvec)
+    
+    postchi = prechi - np.dot(Bvec.T,Sol)
+    
+    pwl = Sol
+    pwlsig = np.sqrt(np.diag(Cov) *postchi/numd)
 
-        prechi = np.dot(zdData[:,3].T,zdData[:,3])
+    model = np.dot(Apart,Sol)
+    f = loglikelihood(data[:,3],model)
+    dof = numd - np.shape(Sol)[0]
+    aic = calcAIC(f,dof)
+    bic = calcBIC(f,dof,numd)
+    #print("My loglikelihood:",f,aic,bic,dof,numd)
+    #print("STATS:",numd,np.sqrt(prechi/numd),np.sqrt(postchi/numd),np.sqrt((prechi-postchi)/numd),aic,bic)
+    stats = {}
+    stats['prechi'] = np.sqrt(prechi/numd)
+    stats['postchi'] = np.sqrt(postchi/numd)
+    stats['chi_inc'] = np.sqrt((prechi-postchi)/numd)
+    stats['aic'] = aic
+    stats['bic'] = bic
 
-        Neq = np.add(Neq, np.dot(Apart.T,Apart) )
-        Bvec = np.dot(Apart.T,zdData[:,3])
-        
-        Cov = np.linalg.pinv(Neq)
-        Sol = np.dot(Cov,Bvec)
-
-        postchi = prechi - np.dot(Bvec.T,Sol)
-        pwlsig = np.sqrt(np.diag(Cov) *postchi/numd)
-       
-        prechis.append(np.sqrt(prechi/numd))
-        postchis.append(np.sqrt(postchi/numd))
-        print("STATS:",numd,np.sqrt(prechi/numd),np.sqrt(postchi/numd),np.sqrt((prechi-postchi)/numd))
-
-        pwl_All[:,j] = Sol.T 
-        pwlSig_All[:,j] = pwlsig.T
-
-        del Sol,pwlsig,Cov,Bvec,Neq,Apart,zdData,ind
-
-    overallPrechi = np.dot(data[:,3].T,data[:,3])
-    #postchi = prechi - np.dot(Bvec.T,Sol)
-    numD = np.shape(data)[0]
-    print("OVERALL STATS:", np.mean(prechis),np.mean(postchis),np.sqrt(overallPrechi/numD))
-    return pwl_All, pwlSig_All
+    return pwl,pwlsig,stats
 
 #==============================================================================
 #
@@ -1397,13 +1389,21 @@ if __name__ == "__main__":
                 med, medStd = blockMedian(data)
                 print("BLKM:",np.shape(med))
             elif args.model == 'pwl':
-                med,pwl_sig = pwl(site_residuals,args.esm_grid,args.esm_grid)
+                med,pwl_sig,stats = pwl(site_residuals,args.esm_grid,args.esm_grid)
+                print("PWL     ","prechi:{:.2f} postchi:{:.2f} AIC:{:.1f}".format(stats['prechi'],stats['postchi'],stats['chi_inc'],stats['aic']))
                 #med,pwl_sig = pwlFly(site_residuals,args.esm_grid,args.esm_grid)
-                #med, pwl_sig = pwlELE(site_residuals,args.esm_grid,args.esm_grid)
-                print("PWL:",np.shape(med))
+
+                # Compute the elevation depenedent model
+                med_ele, pwl_sig = pwlELE(site_residuals,args.esm_grid,args.esm_grid)
+                print("PWL_ELE ","prechi:{:.2f} postchi:{:.2f} AIC:{:.1f}".format(stats['prechi'],stats['postchi'],stats['chi_inc'],stats['aic']))
+
             elif args.model == 'blkmadj':
-                med, medStd = meanAdjust(site_residuals,args.esm_grid,args.esm_grid)
-                #med, medStd = meanAdjustELE(site_residuals)
+                med, medStd,stats = meanAdjust(site_residuals,args.esm_grid,args.esm_grid)
+                print("PWL     ","prechi:{:.2f} postchi:{:.2f} AIC:{:.1f}".format(stats['prechi'],stats['postchi'],stats['chi_inc'],stats['aic']))
+                # Compute the elevation depenedent model
+                med_ele, pwl_sig,stats = meanAdjustELE(site_residuals,args.esm_grid,args.esm_grid)
+                print("med:",np.shape(med),"med_ele:",np.shape(med_ele))#,med_ele[93,:])
+                print("PWL_ELE ","prechi:{:.2f} postchi:{:.2f} AIC:{:.1f}".format(stats['prechi'],stats['postchi'],stats['chi_inc'],stats['aic']))
 
             # check to see if any interpolation needs to be applied
             if args.interpolate == 'ele_mean':
@@ -1425,15 +1425,21 @@ if __name__ == "__main__":
                 ax = fig.add_subplot(111)
                 ele = np.linspace(0,90, int(90./0.5)+1 )
                 ele_model = []
+                nzen = int(90./args.esm_grid) + 1
+                naz  = int(360./args.esm_grid) + 1
+
                 for i in range(0,720):
                     ax.scatter(90.-ele,med[i,:],s=1,alpha=0.5,c='k')
 
                 elevation = []
-                for j in range(0,181):
+                for j in range(0,nzen):
                     elevation.append(90.- j * 0.5)
                     ele_model.append(nanmean(med[:,j]))
 
-                ax.plot(elevation,ele_model[:],'r-',linewidth=2)
+                #if args.model == 'pwl': 
+                ax.plot(elevation,med_ele,'r-',linewidth=2)
+
+                ax.plot(elevation,ele_model[:],'b-',linewidth=2)
                 ax.set_xlabel('Elevation Angle (degrees)',fontsize=8)
                 ax.set_ylabel('Phase Residuals (mm)',fontsize=8)
                 ax.set_xlim([0, 90])

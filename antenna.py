@@ -469,7 +469,6 @@ def satSearch(antennas,dts,dte):
         # check we have a GPS satellite
         if GPSSatsRGX.search(antenna['serialNum']) :
             # check it the satellte was valid at the time
-            #if antennaValid(antenna,dts) or antennaValid(antenna,dte):
             if antennaValid(antenna,dts,dte):
                 #print("Found:",antenna['scode'])
                 found.append(antenna['scode'].rstrip())

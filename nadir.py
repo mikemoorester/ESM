@@ -16,7 +16,7 @@ from scipy.stats.stats import nanmean, nanmedian, nanstd
 from scipy import sparse
 from scipy import stats
 
-import statsmodels.api as sm
+#import statsmodels.api as sm
 import antenna as ant
 import residuals as res
 import gpsTime as gt
@@ -174,6 +174,12 @@ if __name__ == "__main__":
     parser.add_argument('-f', dest='resfile', default='',help="Consolidated one-way LC phase residuals")
 
     parser.add_argument('--model',dest='model', default=False, action='store_true', help="Create a NADIR model")
+
+    parser.add_argument('-p','--path',dest='path',help="Search for all CL3 files in the directory path") 
+    parser.add_argument("--syyyy",dest="syyyy",type=int,help="Start yyyy")
+    parser.add_argument("--sdoy","--sddd",dest="sdoy",type=int,default=0,help="Start doy")
+    parser.add_argument("--eyyyy",dest="eyyyy",type=int,help="End yyyyy")
+    parser.add_argument("--edoy","--eddd",dest="edoy",type=int,default=365,help="End doy")
     #===================================================================
     # Plot options
     parser.add_argument('--polar',dest='polar', default=False, action='store_true', help="Produce a polar plot of the ESM phase residuals (not working in development")
@@ -190,11 +196,23 @@ if __name__ == "__main__":
 
     svdat = []
     nadirData = {}
+    cl3files = []
 
     if args.model: 
         #===================================================================
         # get the antenna information from an antex file
         antennas = ant.parseANTEX(args.antex)
+
+        if args.resfile :
+            cl3files.append(args.resfile)
+        elif args.path:
+            phsRGX = re.compile('.CL3')
+            for root, dirs, files in os.walk(args.path):
+                path = root.split('/')
+                for lfile in files:
+                    if phsRGX.search(lfile):
+                        print("Found:",args.path + "/" + lfile)
+                        cl3files.append(args.path + "/"+ lfile)
 
         # read in the consolidated LC residuals
         print("")
@@ -202,12 +220,20 @@ if __name__ == "__main__":
         print("")
         site_residuals = res.parseConsolidatedNumpy(args.resfile)
 
-        dt_start = gt.unix2dt(site_residuals[0,0])
-        res_start = int(dt_start.strftime("%Y") + dt_start.strftime("%j"))
-        dt_stop = gt.unix2dt(site_residuals[-1,0])
-        res_stop = int(dt_stop.strftime("%Y") + dt_stop.strftime("%j"))
-        print("\tResiduals run from:",res_start,"to:",res_stop)
-        
+        if args.syyyy and args.eyyyy:
+            dt_start = dt.datetime(int(args.syyyy),01,01) + dt.timedelta(days=int(args.sdoy))
+            dt_stop  = dt.datetime(int(args.eyyyy),01,01) + dt.timedelta(days=int(args.edoy))
+        else:
+            print("")
+            print("Warning:")
+            print("Using:",args.resfile,"to work out the time period to deterimine how man satellites weere operating")
+            print("")
+            dt_start = gt.unix2dt(site_residuals[0,0])
+            res_start = int(dt_start.strftime("%Y") + dt_start.strftime("%j"))
+            dt_stop = gt.unix2dt(site_residuals[-1,0])
+            res_stop = int(dt_stop.strftime("%Y") + dt_stop.strftime("%j"))
+            print("\tResiduals run from:",res_start,"to:",res_stop)
+
         svdat = svnav.parseSVNAV(args.svnavFile)
         svs = ant.satSearch(antennas,dt_start,dt_stop)
 
@@ -229,10 +255,25 @@ if __name__ == "__main__":
 
         print("Will have to solve for ",np.size(svs),"sats",svs)
         print("\t Creating a PWL linear model for Nadir satelites for SVS:\n")
-        print("\t Reading in file:",args.resfile)
-        Neq,AtWb = pwl(site_residuals,svs,Neq,AtWb,args.nadir_grid)
 
-        print("Returned Neq, AtWb:",np.shape(Neq),np.shape(AtWb))
+        print("\t Reading in file:",args.resfile)
+        for i in range(0,np.size(cl3files)) :
+            # we don't need to read the residuals in for the first iteration
+            # this has already been done previously to scan for start and stop times
+            if i < 0:
+                site_residuals = res.parseConsolidatedNumpy(cl3files[i])
+
+            Neq,AtWb = pwl(site_residuals,svs,Neq,AtWb,args.nadir_grid)
+            del site_residuals
+
+            print("Returned Neq, AtWb:",np.shape(Neq),np.shape(AtWb))
+
+        print("Now trying an inverse")
+        Cov = np.linalg.pinv(Neq)
+        
+        print("Now computing the solution")
+        Sol = np.dot(Cov,AtWb)
+
 #       print("")
 #       print("Adding the ESM to the antenna PCV model to be saved to:",args.outfile)
 #       print("")
