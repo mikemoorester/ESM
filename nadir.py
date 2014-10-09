@@ -80,12 +80,6 @@ def pwl(site_residuals, svs, Neq, AtWb,nadSpacing=0.1,):
     numParams = numSVS * (numParamsPerSat)
     #print("\t Have:",numParams,"parameters to solve for")
 
-    #Neq = np.eye(numParams,dtype=float) * 0.001
-    #Neq = np.zeros((numParams,numParams)) #dtype=float) * 0.001
-    #AtWb = np.zeros(numParams)
-    #Apart = np.zeros((numd,numParams))
-    #max_pco_iz = 0
-
     for i in range(0,numd):
         # work out the nadir angle
         nadir = calcNadirAngle(data[i,2])
@@ -99,11 +93,8 @@ def pwl(site_residuals, svs, Neq, AtWb,nadSpacing=0.1,):
         for sv in svs:
             if sv == svn_search:
                 ind = ctr
-                #print("Found a match:",sv,svn_search,ctr)
                 break
             ctr+=1
-
-        #print("ind",ind,svn_search,svs)
 
         iz = numParamsPerSat * ctr + niz
         pco_iz = numParamsPerSat *ctr + numParamsPerSat -1
@@ -172,18 +163,23 @@ if __name__ == "__main__":
     
     parser.add_argument('--nadir_grid', dest='nadir_grid', default=0.1, type=float,help="Grid spacing to model NADIR corrections (default = 0.1 degrees)")
     parser.add_argument('-f', dest='resfile', default='',help="Consolidated one-way LC phase residuals")
+    parser.add_argument('-p','--path',dest='path',help="Search for all CL3 files in the directory path") 
 
     parser.add_argument('--model',dest='model', default=False, action='store_true', help="Create a NADIR model")
+    parser.add_argument('--save',dest='save_file',default=False, action='store_true',help="Save the Neq and Atwl matrices into numpy compressed format (npz)")
+    parser.add_argument('-l','--load',dest='load_file',help="Load stored NEQ and AtWl matrices from a file")
+    parser.add_argument('--lpath',dest='load_path',help="Path to search for .npz files")
 
-    parser.add_argument('-p','--path',dest='path',help="Search for all CL3 files in the directory path") 
+    #===================================================================
+
     parser.add_argument("--syyyy",dest="syyyy",type=int,help="Start yyyy")
     parser.add_argument("--sdoy","--sddd",dest="sdoy",type=int,default=0,help="Start doy")
     parser.add_argument("--eyyyy",dest="eyyyy",type=int,help="End yyyyy")
     parser.add_argument("--edoy","--eddd",dest="edoy",type=int,default=365,help="End doy")
+
     #===================================================================
     # Plot options
-    parser.add_argument('--polar',dest='polar', default=False, action='store_true', help="Produce a polar plot of the ESM phase residuals (not working in development")
-    parser.add_argument('--elevation',dest='elevation', default=False, action='store_true', help="Produce an elevation dependent plot of ESM phase residuals")
+    parser.add_argument('--plot',dest='plotNadir', default=False, action='store_true', help="Produce an elevation dependent plot of ESM phase residuals")
     
     #===================================================================
     # Debug function, not needed
@@ -213,66 +209,118 @@ if __name__ == "__main__":
                     if phsRGX.search(lfile):
                         print("Found:",args.path + "/" + lfile)
                         cl3files.append(args.path + "/"+ lfile)
-
-        # read in the consolidated LC residuals
-        print("")
-        print("Reading in the consolidated phase residuals from:",args.resfile)
-        print("")
-        site_residuals = res.parseConsolidatedNumpy(args.resfile)
-
-        if args.syyyy and args.eyyyy:
-            dt_start = dt.datetime(int(args.syyyy),01,01) + dt.timedelta(days=int(args.sdoy))
-            dt_stop  = dt.datetime(int(args.eyyyy),01,01) + dt.timedelta(days=int(args.edoy))
-        else:
+        elif args.load_file:
             print("")
-            print("Warning:")
-            print("Using:",args.resfile,"to work out the time period to deterimine how man satellites weere operating")
+            print("Reading in the Neq and AtWb matrices from:",args.load_file)
             print("")
-            dt_start = gt.unix2dt(site_residuals[0,0])
-            res_start = int(dt_start.strftime("%Y") + dt_start.strftime("%j"))
-            dt_stop = gt.unix2dt(site_residuals[-1,0])
-            res_stop = int(dt_stop.strftime("%Y") + dt_stop.strftime("%j"))
-            print("\tResiduals run from:",res_start,"to:",res_stop)
 
-        svdat = svnav.parseSVNAV(args.svnavFile)
-        svs = ant.satSearch(antennas,dt_start,dt_stop)
+            npzfile = np.load(args.load_file)
+            Neq  = npzfile['neq']
+            AtWb = npzfile['atwb']
+            svs  = npzfile['svs']
 
-        #=====================================================================
-        # add one to make sure we have a linspace which includes 0.0 and 14.0
-        # add another parameter for the zenith PCO estimate
+        if not args.load_file and not args.load_path:
+            # read in the consolidated LC residuals
+            print("")
+            print("Reading in the consolidated phase residuals from:",args.resfile)
+            print("")
+            site_residuals = res.parseConsolidatedNumpy(args.resfile)
 
-        numNADS = int(14.0/args.nadir_grid) + 1 
-        PCOEstimates = 1
-        # 0 => 140 PCV, 141 PCO
-        # 142 => 283 PCV, 284 PCO
-        numSVS = np.size(svs)
-        numParamsPerSat = numNADS + PCOEstimates
-        numParams = numSVS * (numParamsPerSat)
-        print("\t Have:",numParams,"parameters to solve for")
+            if args.syyyy and args.eyyyy:
+                dt_start = dt.datetime(int(args.syyyy),01,01) + dt.timedelta(days=int(args.sdoy))
+                dt_stop  = dt.datetime(int(args.eyyyy),01,01) + dt.timedelta(days=int(args.edoy))
+            else:
+                print("")
+                print("Warning:")
+                print("Using:",args.resfile,"to work out the time period to deterimine how man satellites weere operating")
+                print("")
+                dt_start = gt.unix2dt(site_residuals[0,0])
+                res_start = int(dt_start.strftime("%Y") + dt_start.strftime("%j"))
+                dt_stop = gt.unix2dt(site_residuals[-1,0])
+                res_stop = int(dt_stop.strftime("%Y") + dt_stop.strftime("%j"))
+                print("\tResiduals run from:",res_start,"to:",res_stop)
 
-        Neq = np.zeros((numParams,numParams)) #dtype=float) * 0.001
-        AtWb = np.zeros(numParams)
+            svdat = svnav.parseSVNAV(args.svnavFile)
+            svs = ant.satSearch(antennas,dt_start,dt_stop)
 
-        print("Will have to solve for ",np.size(svs),"sats",svs)
-        print("\t Creating a PWL linear model for Nadir satelites for SVS:\n")
+            #=====================================================================
+            # add one to make sure we have a linspace which includes 0.0 and 14.0
+            # add another parameter for the zenith PCO estimate
 
-        print("\t Reading in file:",args.resfile)
-        for i in range(0,np.size(cl3files)) :
-            # we don't need to read the residuals in for the first iteration
-            # this has already been done previously to scan for start and stop times
-            if i < 0:
-                site_residuals = res.parseConsolidatedNumpy(cl3files[i])
+            numNADS = int(14.0/args.nadir_grid) + 1 
+            PCOEstimates = 1
+            # 0 => 140 PCV, 141 PCO
+            # 142 => 283 PCV, 284 PCO
+            numSVS = np.size(svs)
+            numParamsPerSat = numNADS + PCOEstimates
+            numParams = numSVS * (numParamsPerSat)
+            print("\t Have:",numParams,"parameters to solve for")
 
-            Neq,AtWb = pwl(site_residuals,svs,Neq,AtWb,args.nadir_grid)
-            del site_residuals
+            Neq = np.zeros((numParams,numParams)) #dtype=float) * 0.001
+            AtWb = np.zeros(numParams)
 
-            print("Returned Neq, AtWb:",np.shape(Neq),np.shape(AtWb))
+            print("Will have to solve for ",np.size(svs),"sats",svs)
+            print("\t Creating a PWL linear model for Nadir satelites for SVS:\n")
 
-        print("Now trying an inverse")
-        Cov = np.linalg.pinv(Neq)
+            print("\t Reading in file:",args.resfile)
+            for i in range(0,np.size(cl3files)) :
+                # we don't need to read the residuals in for the first iteration
+                # this has already been done previously to scan for start and stop times
+                if i < 0:
+                    site_residuals = res.parseConsolidatedNumpy(cl3files[i])
+
+                Neq_tmp,AtWb_tmp = pwl(site_residuals,svs,Neq,AtWb,args.nadir_grid)
+                Neq = np.add(Neq,Neq_tmp)
+                AtWb = np.add(AtWb,AtWb_tmp)
+
+                del site_residuals,Neq_tmp,AtWb_tmp
+            
+                print("Returned Neq, AtWb:",np.shape(Neq),np.shape(AtWb))
+            
+                if args.save_file:
+                    print("Saving the Neq and AtWb arrays")
+                    sf = cl3files[i]+".npz"
+                    np.savez(sf,neq=Neq,atwb=AtWb,svs=svs)
+            
+            #=====================================================================
+            # End of if not load_file or not load_path
+            #=====================================================================
+            
+        if not args.save_file:
+            print("Now trying an inverse")
+            Cov = np.linalg.pinv(Neq)
         
-        print("Now computing the solution")
-        Sol = np.dot(Cov,AtWb)
+            print("Now computing the solution")
+            Sol = np.dot(Cov,AtWb)
+            print("The solution is :",np.shape(Sol))
+
+        if args.plotNadir:
+            nad = np.linspace(0,14, int(14./0.1)+1 )
+            num_nad = int(14./0.1) + 1
+            ctr = 0
+            numParamsPerSat = int(14.0/args.nadir_grid) + 1 
+
+            for svn in svs:
+                fig = plt.figure(figsize=(3.62, 2.76))
+                fig.canvas.set_window_title("SVN_"+svn+"_nadirCorrectionModel.png")
+                ax = fig.add_subplot(111)
+
+                siz = numParamsPerSat * ctr 
+                eiz = numParamsPerSat *ctr + numParamsPerSat 
+                ax.plot(nad,Sol[siz:eiz],'r-',linewidth=2)
+
+                ax.set_xlabel('Nadir Angle (degrees)',fontsize=8)
+                ax.set_ylabel('Phase Residuals (mm)',fontsize=8)
+                ax.set_xlim([0, 14])
+
+                for item in ([ax.title, ax.xaxis.label, ax.yaxis.label] +
+                           ax.get_xticklabels() + ax.get_yticklabels()):
+                    item.set_fontsize(8)
+
+                plt.tight_layout()
+                ctr += 1
+            plt.show()
+
 
 #       print("")
 #       print("Adding the ESM to the antenna PCV model to be saved to:",args.outfile)
