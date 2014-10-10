@@ -170,6 +170,7 @@ if __name__ == "__main__":
     parser.add_argument('-l','--load',dest='load_file',help="Load stored NEQ and AtWl matrices from a file")
     parser.add_argument('--lpath',dest='load_path',help="Path to search for .npz files")
 
+    
     #===================================================================
 
     parser.add_argument("--syyyy",dest="syyyy",type=int,help="Start yyyy")
@@ -193,6 +194,7 @@ if __name__ == "__main__":
     svdat = []
     nadirData = {}
     cl3files = []
+    npzfiles = []
 
     if args.model: 
         #===================================================================
@@ -218,6 +220,31 @@ if __name__ == "__main__":
             Neq  = npzfile['neq']
             AtWb = npzfile['atwb']
             svs  = npzfile['svs']
+        elif args.load_path:
+            phsRGX = re.compile('.npz')
+            for root, dirs, files in os.walk(args.load_path):
+                path = root.split('/')
+                for lfile in files:
+                    if phsRGX.search(lfile):
+                        print("Found:",args.load_path + "/" + lfile)
+                        npzfiles.append(args.load_path + "/"+ lfile)
+            nctr = 0
+            for nfile in (npzfiles):
+                npzfile = np.load(nfile)
+                Neq_tmp  = npzfile['neq']
+                AtWb_tmp = npzfile['atwb']
+                svs_tmp  = npzfile['svs']
+                if nctr == 0:
+                    Neq = Neq_tmp
+                    AtWb = AtWb_tmp
+                    svs = svs_tmp
+                else:
+                    Neq  = np.add(Neq,Neq_tmp)
+                    AtWb = np.add(AtWb,AtWb_tmp)
+
+                nctr += 1
+            if args.save_file:
+                np.savez('consolidated.npz',neq=Neq,atwb=AtWb,svs=svs)
 
         if not args.load_file and not args.load_path:
             # read in the consolidated LC residuals
