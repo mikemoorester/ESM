@@ -219,7 +219,8 @@ if __name__ == "__main__":
             npzfile = np.load(args.load_file)
             Neq  = npzfile['neq']
             AtWb = npzfile['atwb']
-            svs  = npzfile['svs']
+            svs  = np.sort(npzfile['svs'])
+
         elif args.load_path:
             phsRGX = re.compile('.npz')
             for root, dirs, files in os.walk(args.load_path):
@@ -237,7 +238,7 @@ if __name__ == "__main__":
                 if nctr == 0:
                     Neq = Neq_tmp
                     AtWb = AtWb_tmp
-                    svs = svs_tmp
+                    svs = np.sort(svs_tmp)
                 else:
                     Neq  = np.add(Neq,Neq_tmp)
                     AtWb = np.add(AtWb,AtWb_tmp)
@@ -269,7 +270,7 @@ if __name__ == "__main__":
 
             svdat = svnav.parseSVNAV(args.svnavFile)
             svs = ant.satSearch(antennas,dt_start,dt_stop)
-
+            svs = np.sort(svs)
             #=====================================================================
             # add one to make sure we have a linspace which includes 0.0 and 14.0
             # add another parameter for the zenith PCO estimate
