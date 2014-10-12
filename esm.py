@@ -16,7 +16,6 @@ from scipy.stats.stats import nanmean, nanmedian, nanstd
 from scipy import sparse
 from scipy import stats
 
-#import statsmodels.api as sm
 import antenna as ant
 import residuals as res
 import gpsTime as gt
@@ -246,16 +245,19 @@ def modelStats(model,data, azSpacing=0.5,zenSpacing=0.5):
 # calculate the cost function, that is the Mean Square Error
 def calcMSE(model,data,azGridSpacing=0.5,zenGridSpacing=0.5):
 
-    az = np.linspace(0,360, int(360./azGridSpacing)+1 )
+    #az = np.linspace(0,360, int(360./azGridSpacing)+1 )
+    az = np.linspace(0,360, int(360./azGridSpacing) )
     zen = np.linspace(0,90, int(90./zenGridSpacing)+1 )
-
+    print("MODEL shape:",np.shape(model))
     model = np.nan_to_num(model)
     model_test = interpolate.interp2d(az, zen, model.reshape(az.size * zen.size,), kind='linear')
 
+    print("MODEL shape:",np.shape(model),"Model test:",np.shape(model_test))
     mse = 0
 
     for i in range(0,np.shape(data)[0]):
-        mse += (data[i,2] - model_test(data[i,0],data[i,1]))[0]**2
+    #   mse += (data[i,2] - model_test(data[i,0],data[i,1]))[0]**2
+        mse += (data[i,3] - model_test(data[i,1],data[i,2]))[0]**2
     mse  = 1./(2.*np.shape(data)[0]) * mse
     #print("CalcMSE:",mse)
 
@@ -846,9 +848,9 @@ def pwl(site_residuals, azSpacing=0.5,zenSpacing=0.5):
         Apart = np.zeros((numd,numZD))
 
         for i in range(0,numd):
-            iz = np.floor(azData[i,2]/zenSpacing)
-            Apart[i,iz] = (1.-(azData[i,2]-iz*zenSpacing)/zenSpacing)
-            Apart[i,iz+1] = (azData[i,2]-iz*zenSpacing)/zenSpacing
+            iz = int(np.floor(azData[i,2]/zenSpacing))
+            Apart[i,iz] = (1.-(azData[i,2]-float(iz)*zenSpacing)/zenSpacing)
+            Apart[i,iz+1] = (azData[i,2]-float(iz)*zenSpacing)/zenSpacing
 
         prechi = np.dot(azData[:,3].T,azData[:,3])
 

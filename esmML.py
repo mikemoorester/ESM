@@ -11,7 +11,8 @@ from scipy import interpolate
 # calculate the fit to the data R2
 def calcR2(model,data,azGridSpacing=0.5,zenGridSpacing=0.5):
 
-    az = np.linspace(0,360, int(360./azGridSpacing)+1 )
+    #az = np.linspace(0,360, int(360./azGridSpacing)+1 )
+    az = np.linspace(0,360, int(360./azGridSpacing) )
     zen = np.linspace(0,90, int(90./zenGridSpacing)+1 )
     x = [] # actual data
     y = [] # predited data
