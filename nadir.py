@@ -122,7 +122,7 @@ def pwl(site_residuals, svs, Neq, AtWb,nadSpacing=0.1,):
         Neq[iz+1,iz] = (Apart_2*Apart_1) * 1./w**2
         Neq[iz+1,iz+1] = (Apart_2*Apart_2) * 1./w**2
 
-        w = np.sin(data[i,2]/180.*np.pi)
+        w = 1. #np.sin(data[i,2]/180.*np.pi)
         AtWb[iz] = AtWb[iz] + Apart_1 * data[i,3] * 1./w**2
         AtWb[iz+1] = AtWb[iz+1] + Apart_2 * data[i,3] * 1./w**2
         print("nadir {:.2f}, iz {:d}, pco_iz {:d}, el {:.2f}, w {:.2f}, Apart_1 {:2f}, data {:.2f}, AtWb {:.3f}".format(nadir,iz,pco_iz,data[i,2],w,Apart_1,data[i,3],AtWb[iz]))
@@ -130,6 +130,7 @@ def pwl(site_residuals, svs, Neq, AtWb,nadSpacing=0.1,):
         # Now  add in the PCO offsest into the Neq
         # PCO partial ...
         Apart_3 = 1./np.cos(np.radians(nadir)) 
+        #Apart_3 = 1./np.sin(np.radians(nadir)) 
         Neq[pco_iz,pco_iz] = (Apart_3 * Apart_3) * 1./w**2
         AtWb[pco_iz] = AtWb[pco_iz] + Apart_3 * data[i,3] * 1./w**2
         #print("nadir {:.2f}, iz{:d}, pco_iz{:d}, Apart_3 {:.3f}".format(nadir,iz,pco_iz,Apart_3))
@@ -353,7 +354,7 @@ if __name__ == "__main__":
 
                 ax.set_xlabel('Nadir Angle (degrees)',fontsize=8)
                 ax.set_ylabel('Phase Residuals (mm)',fontsize=8)
-                ax.set_xlim([0, 14])
+                #ax.set_xlim([0, 14])
 
                 for item in ([ax.title, ax.xaxis.label, ax.yaxis.label] +
                            ax.get_xticklabels() + ax.get_yticklabels()):
@@ -361,6 +362,32 @@ if __name__ == "__main__":
 
                 plt.tight_layout()
                 ctr += 1
+                
+                if ctr > 5:
+                    break
+
+            #==================================================
+            fig = plt.figure(figsize=(3.62, 2.76))
+            fig.canvas.set_window_title("PCO_correction.png")
+            ax = fig.add_subplot(111)
+            ctr = 0
+            for svn in svs:
+                eiz = numParamsPerSat *ctr + numParamsPerSat 
+                ax.plot(ctr,Sol[eiz],'k.',linewidth=2)
+                ctr += 1
+
+            ax.set_xlabel('Nadir Angle (degrees)',fontsize=8)
+            ax.set_ylabel('Phase Residuals (mm)',fontsize=8)
+            #ax.set_xlim([0, 14])
+
+            for item in ([ax.title, ax.xaxis.label, ax.yaxis.label] +
+                       ax.get_xticklabels() + ax.get_yticklabels()):
+                item.set_fontsize(8)
+
+            plt.tight_layout()
+
+
+
             plt.show()
 
 
