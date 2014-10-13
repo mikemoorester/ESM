@@ -96,35 +96,43 @@ def pwl(site_residuals, svs, Neq, AtWb,nadSpacing=0.1,):
                 break
             ctr+=1
 
-        iz = numParamsPerSat * ctr + niz
-        pco_iz = numParamsPerSat *ctr + numParamsPerSat -1
+        iz = int(numParamsPerSat * ctr + niz)
+        pco_iz = int(numParamsPerSat *ctr + numParamsPerSat -1)
+
         if iz >= numParams or pco_iz > numParams:
             print("prn,svn_search,svn,ctr,size(svs),niz,iz,nadir,numParams:",data[i,4],svn_search,svn,ctr,np.size(svs),niz,iz,nadir,numParams)
             print(svs)
         #Apart[i,iz] = (1.-(nadir-iz*nadSpacing)/nadSpacing)
-        Apart_1 = (1.-(nadir-iz*nadSpacing)/nadSpacing)
+        Apart_1 = (1.-(nadir-niz*nadSpacing)/nadSpacing)
         #Apart[i,iz+1] = (nadir-iz*nadSpacing)/nadSpacing
-        Apart_2 = (nadir-iz*nadSpacing)/nadSpacing
+        Apart_2 = (nadir-niz*nadSpacing)/nadSpacing
 
+        #print("i:{:d}, nadir {:.3f}, iz {:.3f}, nadSpacing {:.3f}, Apart_1 {:.3f}".format(i,nadir,niz,nadSpacing,Apart_1))
+        #print("i:{:d}, nadir {:.3f}, iz {:.3f}, nadSpacing {:.3f}, Apart_2 {:.3f}".format(i,nadir,iz,nadSpacing,Apart_2))
         #prechi = np.dot(azData[:,3].T,azData[:,3])
         #Neq = np.add(Neq, np.dot(Apart.T,Apart) )
         w = 1. #np.sin(data[i,2]/180.*np.pi)
+        
         #for k in range(iz,iz+2):
         #    for l in range(iz,iz+2):
         #        Neq[k,l] = Neq[k,l] + (Apart[i,l]*Apart[i,k]) * 1./w**2
+        
         Neq[iz,iz] = (Apart_1*Apart_1) * 1./w**2
         Neq[iz,iz+1] = (Apart_2*Apart_1) * 1./w**2
         Neq[iz+1,iz] = (Apart_2*Apart_1) * 1./w**2
         Neq[iz+1,iz+1] = (Apart_2*Apart_2) * 1./w**2
+
+        w = np.sin(data[i,2]/180.*np.pi)
         AtWb[iz] = AtWb[iz] + Apart_1 * data[i,3] * 1./w**2
         AtWb[iz+1] = AtWb[iz+1] + Apart_2 * data[i,3] * 1./w**2
+        print("nadir {:.2f}, iz {:d}, pco_iz {:d}, el {:.2f}, w {:.2f}, Apart_1 {:2f}, data {:.2f}, AtWb {:.3f}".format(nadir,iz,pco_iz,data[i,2],w,Apart_1,data[i,3],AtWb[iz]))
 
         # Now  add in the PCO offsest into the Neq
         # PCO partial ...
-        Apart_3 = 1./ np.sin(nadir/180.*np.pi) 
+        Apart_3 = 1./np.cos(np.radians(nadir)) 
         Neq[pco_iz,pco_iz] = (Apart_3 * Apart_3) * 1./w**2
         AtWb[pco_iz] = AtWb[pco_iz] + Apart_3 * data[i,3] * 1./w**2
-
+        #print("nadir {:.2f}, iz{:d}, pco_iz{:d}, Apart_3 {:.3f}".format(nadir,iz,pco_iz,Apart_3))
 
     #f = loglikelihood(np.array(meas_complete),np.array(model_complete))
     #numd = np.size(meas_complete)
@@ -169,7 +177,6 @@ if __name__ == "__main__":
     parser.add_argument('--save',dest='save_file',default=False, action='store_true',help="Save the Neq and Atwl matrices into numpy compressed format (npz)")
     parser.add_argument('-l','--load',dest='load_file',help="Load stored NEQ and AtWl matrices from a file")
     parser.add_argument('--lpath',dest='load_path',help="Path to search for .npz files")
-
     
     #===================================================================
 
@@ -220,6 +227,13 @@ if __name__ == "__main__":
             Neq  = npzfile['neq']
             AtWb = npzfile['atwb']
             svs  = np.sort(npzfile['svs'])
+            print("Neq shape:",np.shape(Neq))
+            for i in range(0,np.shape(Neq)[0]):
+                print("Neq[0,",i,"]",Neq[200,i])
+            ctr = 0
+            for val in AtWb:
+                print("AtWb", ctr, val)
+                ctr += 1
 
         elif args.load_path:
             phsRGX = re.compile('.npz')
@@ -289,8 +303,8 @@ if __name__ == "__main__":
 
             print("Will have to solve for ",np.size(svs),"sats",svs)
             print("\t Creating a PWL linear model for Nadir satelites for SVS:\n")
-
             print("\t Reading in file:",args.resfile)
+
             for i in range(0,np.size(cl3files)) :
                 # we don't need to read the residuals in for the first iteration
                 # this has already been done previously to scan for start and stop times
