@@ -122,8 +122,8 @@ def pwl(site_residuals, svs, Neq, AtWb,nadSpacing=0.1,):
 
         # Now  add in the PCO offsest into the Neq
         # PCO partial ...
-        Apart_3 = 1./np.cos(np.radians(nadir)) 
-        #Apart_3 = 1./np.sin(np.radians(nadir)) 
+        #Apart_3 = 1./np.cos(np.radians(nadir)) 
+        Apart_3 = 1./np.sin(np.radians(nadir)) 
         Neq[pco_iz,pco_iz] = (Apart_3 * Apart_3) * 1./w**2
         AtWb[pco_iz] = AtWb[pco_iz] + Apart_3 * data[i,3] * 1./w**2
         #print("nadir {:.2f}, iz{:d}, pco_iz{:d}, Apart_3 {:.3f}".format(nadir,iz,pco_iz,Apart_3))
@@ -141,7 +141,7 @@ def pwl(site_residuals, svs, Neq, AtWb,nadSpacing=0.1,):
     #print("MaX PCO:",max_pco_iz)
     return Neq, AtWb
 
-def pwlNadirSite(site_residuals, svs, Neq, AtWb,nadSpacing=0.1,):
+def pwlNadirSite(site_residuals, svs, Neq, AtWb,nadSpacing=0.1,zenSpacing=0.5):
     """
     Create a model for the satellites and sites at the same time.
     PWL piece-wise-linear interpolation fit of phase residuals
@@ -170,13 +170,17 @@ def pwlNadirSite(site_residuals, svs, Neq, AtWb,nadSpacing=0.1,):
     # 142 => 283 PCV, 284 PCO
     numSVS = np.size(svs)
     numParamsPerSat = numNADS + PCOEstimates
-    numParams = numSVS * (numParamsPerSat)
+    numParamsPerSite = 181
+    numParams = numSVS * (numParamsPerSat) + numParamsPerSite
     #print("\t Have:",numParams,"parameters to solve for")
 
+    Apart = np.zeros((numd,numParams))
     for i in range(0,numd):
         # work out the nadir angle
         nadir = calcNadirAngle(data[i,2])
         niz = np.floor(nadir/nadSpacing)
+        siz = numParamsPerSat + np.floor(data[i,2]/zenSpacing)
+
         # work out the svn number
         svndto =  gt.unix2dt(data[i,0])
         svn = svnav.findSV_DTO(svdat,data[i,4],svndto)
@@ -189,37 +193,42 @@ def pwlNadirSite(site_residuals, svs, Neq, AtWb,nadSpacing=0.1,):
                 break
             ctr+=1
 
+        w = 1. #np.sin(data[i,2]/180.*np.pi)
         iz = int(numParamsPerSat * ctr + niz)
         pco_iz = int(numParamsPerSat *ctr + numParamsPerSat -1)
 
         if iz >= numParams or pco_iz > numParams:
             print("prn,svn_search,svn,ctr,size(svs),niz,iz,nadir,numParams:",data[i,4],svn_search,svn,ctr,np.size(svs),niz,iz,nadir,numParams)
             print(svs)
-        #Apart[i,iz] = (1.-(nadir-iz*nadSpacing)/nadSpacing)
-        Apart_1 = (1.-(nadir-niz*nadSpacing)/nadSpacing)
-        #Apart[i,iz+1] = (nadir-iz*nadSpacing)/nadSpacing
-        Apart_2 = (nadir-niz*nadSpacing)/nadSpacing
 
-        #print("i:{:d}, nadir {:.3f}, iz {:.3f}, nadSpacing {:.3f}, Apart_1 {:.3f}".format(i,nadir,niz,nadSpacing,Apart_1))
-        w = 1. #np.sin(data[i,2]/180.*np.pi)
-        
-        Neq[iz,iz] = (Apart_1*Apart_1) * 1./w**2
-        Neq[iz,iz+1] = (Apart_2*Apart_1) * 1./w**2
-        Neq[iz+1,iz] = (Apart_2*Apart_1) * 1./w**2
-        Neq[iz+1,iz+1] = (Apart_2*Apart_2) * 1./w**2
+        Apart[i,iz] = (1.-(nadir-iz*nadSpacing)/nadSpacing)
+        #Apart_1 = (1.-(nadir-niz*nadSpacing)/nadSpacing)
+        Apart[i,iz+1] = (nadir-iz*nadSpacing)/nadSpacing
+        #Apart_2 = (nadir-niz*nadSpacing)/nadSpacing
 
-        w = 1. #np.sin(data[i,2]/180.*np.pi)
-        AtWb[iz] = AtWb[iz] + Apart_1 * data[i,3] * 1./w**2
-        AtWb[iz+1] = AtWb[iz+1] + Apart_2 * data[i,3] * 1./w**2
-        #print("nadir {:.2f}, iz {:d}, pco_iz {:d}, el {:.2f}, w {:.2f}, Apart_1 {:2f}, data {:.2f}, AtWb {:.3f}".format(nadir,iz,pco_iz,data[i,2],w,Apart_1,data[i,3],AtWb[iz]))
+        AtWb[iz] = AtWb[iz] + Apart[i,iz] * data[i,3] * 1./w**2
+        AtWb[iz+1] = AtWb[iz+1] + Apart[i,iz+1] * data[i,3] * 1./w**2
+
+        Neq[iz,iz] = (Apart[i,iz]*Apart[i,iz]) * 1./w**2
+        Neq[iz,iz+1] = (Apart[i,iz+1]*Apart[i,iz]) * 1./w**2
+        Neq[iz+1,iz] = (Apart[i,iz+1]*Apart[i,iz]) * 1./w**2
+        Neq[iz+1,iz+1] = (Apart[i,iz+1]*Apart[i,iz+1]) * 1./w**2
 
         # Now  add in the PCO offsest into the Neq
         # PCO partial ...
-        Apart_3 = 1./np.cos(np.radians(nadir)) 
         #Apart_3 = 1./np.sin(np.radians(nadir)) 
-        Neq[pco_iz,pco_iz] = (Apart_3 * Apart_3) * 1./w**2
-        AtWb[pco_iz] = AtWb[pco_iz] + Apart_3 * data[i,3] * 1./w**2
+        Apart[i,pco_iz] = 1./np.sin(np.radians(nadir)) 
+        Neq[pco_iz,pco_iz] = (Apart[i,pco_iz] * Apart[i,pco_iz]) * 1./w**2
+        AtWb[pco_iz] = AtWb[pco_iz] + Apart[i,pco_iz] * data[i,3] * 1./w**2
         #print("nadir {:.2f}, iz{:d}, pco_iz{:d}, Apart_3 {:.3f}".format(nadir,iz,pco_iz,Apart_3))
+
+        # Site parameters
+        Apart[i,siz] = (1.-(data[i,2]-iz*zenSpacing)/zenSpacing)
+        Apart[i,siz+1] = (data[i,2]-iz*zenSpacing)/zenSpacing
+        
+    del Neq
+
+    Neq = np.dot(Apart.T,Apart) 
 
     #f = loglikelihood(np.array(meas_complete),np.array(model_complete))
     #numd = np.size(meas_complete)
@@ -315,7 +324,7 @@ if __name__ == "__main__":
             Neq  = npzfile['neq']
             AtWb = npzfile['atwb']
             svs  = np.sort(npzfile['svs'])
-            print("Neq shape:",np.shape(Neq))
+            #print("Neq shape:",np.shape(Neq))
             #for i in range(0,np.shape(Neq)[0]):
             #    print("Neq[0,",i,"]",Neq[200,i])
             #ctr = 0
@@ -382,7 +391,11 @@ if __name__ == "__main__":
             # 142 => 283 PCV, 284 PCO
             numSVS = np.size(svs)
             numParamsPerSat = numNADS + PCOEstimates
-            numParams = numSVS * (numParamsPerSat)
+            if args.model == 'pwl':
+                numParams = numSVS * (numParamsPerSat)
+            elif args.model == 'pwlSite':
+                numParamsPerSite = 181
+                numParams = numSVS * (numParamsPerSat) + numParamsPerSite
             print("\t Have:",numParams,"parameters to solve for")
 
             Neq = np.zeros((numParams,numParams)) #dtype=float) * 0.001
@@ -476,8 +489,12 @@ if __name__ == "__main__":
             fig.canvas.set_window_title("PCO_correction.png")
             ax = fig.add_subplot(111)
             ctr = 0
+            numSVS = np.size(svs)
+            numNADS = int(14.0/args.nadir_grid) + 1 
+            numParamsPerSat = numNADS + PCOEstimates
+            print("Number of Params per Sat:",numParamsPerSat,"numNads",numNADS,"Sol",np.shape(Sol))
             for svn in svs:
-                eiz = numParamsPerSat *ctr + numParamsPerSat 
+                eiz = numParamsPerSat *ctr + numParamsPerSat -1 
                 print(ctr,"PCO:",eiz)
                 ax.plot(ctr,Sol[eiz],'k.',linewidth=2)
                 ctr += 1
