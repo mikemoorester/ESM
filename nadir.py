@@ -108,14 +108,7 @@ def pwl(site_residuals, svs, Neq, AtWb,nadSpacing=0.1,):
         Apart_2 = (nadir-niz*nadSpacing)/nadSpacing
 
         #print("i:{:d}, nadir {:.3f}, iz {:.3f}, nadSpacing {:.3f}, Apart_1 {:.3f}".format(i,nadir,niz,nadSpacing,Apart_1))
-        #print("i:{:d}, nadir {:.3f}, iz {:.3f}, nadSpacing {:.3f}, Apart_2 {:.3f}".format(i,nadir,iz,nadSpacing,Apart_2))
-        #prechi = np.dot(azData[:,3].T,azData[:,3])
-        #Neq = np.add(Neq, np.dot(Apart.T,Apart) )
         w = 1. #np.sin(data[i,2]/180.*np.pi)
-        
-        #for k in range(iz,iz+2):
-        #    for l in range(iz,iz+2):
-        #        Neq[k,l] = Neq[k,l] + (Apart[i,l]*Apart[i,k]) * 1./w**2
         
         Neq[iz,iz] = (Apart_1*Apart_1) * 1./w**2
         Neq[iz,iz+1] = (Apart_2*Apart_1) * 1./w**2
@@ -125,7 +118,100 @@ def pwl(site_residuals, svs, Neq, AtWb,nadSpacing=0.1,):
         w = 1. #np.sin(data[i,2]/180.*np.pi)
         AtWb[iz] = AtWb[iz] + Apart_1 * data[i,3] * 1./w**2
         AtWb[iz+1] = AtWb[iz+1] + Apart_2 * data[i,3] * 1./w**2
-        print("nadir {:.2f}, iz {:d}, pco_iz {:d}, el {:.2f}, w {:.2f}, Apart_1 {:2f}, data {:.2f}, AtWb {:.3f}".format(nadir,iz,pco_iz,data[i,2],w,Apart_1,data[i,3],AtWb[iz]))
+        #print("nadir {:.2f}, iz {:d}, pco_iz {:d}, el {:.2f}, w {:.2f}, Apart_1 {:2f}, data {:.2f}, AtWb {:.3f}".format(nadir,iz,pco_iz,data[i,2],w,Apart_1,data[i,3],AtWb[iz]))
+
+        # Now  add in the PCO offsest into the Neq
+        # PCO partial ...
+        Apart_3 = 1./np.cos(np.radians(nadir)) 
+        #Apart_3 = 1./np.sin(np.radians(nadir)) 
+        Neq[pco_iz,pco_iz] = (Apart_3 * Apart_3) * 1./w**2
+        AtWb[pco_iz] = AtWb[pco_iz] + Apart_3 * data[i,3] * 1./w**2
+        #print("nadir {:.2f}, iz{:d}, pco_iz{:d}, Apart_3 {:.3f}".format(nadir,iz,pco_iz,Apart_3))
+
+    #f = loglikelihood(np.array(meas_complete),np.array(model_complete))
+    #numd = np.size(meas_complete)
+    #dof = numd - np.shape(Sol_complete)[0]
+    #aic = calcAIC(f,dof)
+    #bic = calcBIC(f,dof,numd)
+    #prechi = np.dot(data[:,3].T,data[:,3])
+    #prechi = np.dot(np.array(meas_complete).T,np.array(meas_complete))
+    #postchi = prechi - np.dot(np.array(Bvec_complete).T,np.array(Sol_complete))
+    #print("My loglikelihood:",f,aic,bic,dof,numd)
+    #print("STATS:",numd,np.sqrt(prechi/numd),np.sqrt(postchi/numd),np.sqrt((prechi-postchi)/numd),aic,bic)
+    #print("MaX PCO:",max_pco_iz)
+    return Neq, AtWb
+
+def pwlNadirSite(site_residuals, svs, Neq, AtWb,nadSpacing=0.1,):
+    """
+    Create a model for the satellites and sites at the same time.
+    PWL piece-wise-linear interpolation fit of phase residuals
+    -construct a PWL fit for each azimuth bin, and then paste them all together to get 
+     the full model
+    -inversion is done within each bin
+
+    cdata -> compressed data
+    """
+    print("rejecting any residuals greater than 100mm",np.shape(site_residuals))
+    tdata = res.reject_absVal(site_residuals,100.)
+    del site_residuals 
+    print("rejecting any residuals greater than 5 sigma",np.shape(tdata))
+    data = res.reject_outliers_elevation(tdata,5,0.5)
+    print("finished outlier detection",np.shape(data))
+    del tdata
+
+    print("Creating a model for the Satellites and Station Simultaneously")
+
+    numd = np.shape(data)[0]
+    # add one to make sure we have a linspace which includes 0.0 and 14.0
+    # add another parameter for the zenith PCO estimate
+    numNADS = int(14.0/nadSpacing) + 1 
+    PCOEstimates = 1
+    # 0 => 140 PCV, 141 PCO
+    # 142 => 283 PCV, 284 PCO
+    numSVS = np.size(svs)
+    numParamsPerSat = numNADS + PCOEstimates
+    numParams = numSVS * (numParamsPerSat)
+    #print("\t Have:",numParams,"parameters to solve for")
+
+    for i in range(0,numd):
+        # work out the nadir angle
+        nadir = calcNadirAngle(data[i,2])
+        niz = np.floor(nadir/nadSpacing)
+        # work out the svn number
+        svndto =  gt.unix2dt(data[i,0])
+        svn = svnav.findSV_DTO(svdat,data[i,4],svndto)
+
+        svn_search = 'G{:03d}'.format(svn) 
+        ctr = 0
+        for sv in svs:
+            if sv == svn_search:
+                ind = ctr
+                break
+            ctr+=1
+
+        iz = int(numParamsPerSat * ctr + niz)
+        pco_iz = int(numParamsPerSat *ctr + numParamsPerSat -1)
+
+        if iz >= numParams or pco_iz > numParams:
+            print("prn,svn_search,svn,ctr,size(svs),niz,iz,nadir,numParams:",data[i,4],svn_search,svn,ctr,np.size(svs),niz,iz,nadir,numParams)
+            print(svs)
+        #Apart[i,iz] = (1.-(nadir-iz*nadSpacing)/nadSpacing)
+        Apart_1 = (1.-(nadir-niz*nadSpacing)/nadSpacing)
+        #Apart[i,iz+1] = (nadir-iz*nadSpacing)/nadSpacing
+        Apart_2 = (nadir-niz*nadSpacing)/nadSpacing
+
+        #print("i:{:d}, nadir {:.3f}, iz {:.3f}, nadSpacing {:.3f}, Apart_1 {:.3f}".format(i,nadir,niz,nadSpacing,Apart_1))
+        w = 1. #np.sin(data[i,2]/180.*np.pi)
+        
+        Neq[iz,iz] = (Apart_1*Apart_1) * 1./w**2
+        Neq[iz,iz+1] = (Apart_2*Apart_1) * 1./w**2
+        Neq[iz+1,iz] = (Apart_2*Apart_1) * 1./w**2
+        Neq[iz+1,iz+1] = (Apart_2*Apart_2) * 1./w**2
+
+        w = 1. #np.sin(data[i,2]/180.*np.pi)
+        AtWb[iz] = AtWb[iz] + Apart_1 * data[i,3] * 1./w**2
+        AtWb[iz+1] = AtWb[iz+1] + Apart_2 * data[i,3] * 1./w**2
+        #print("nadir {:.2f}, iz {:d}, pco_iz {:d}, el {:.2f}, w {:.2f}, Apart_1 {:2f}, data {:.2f}, AtWb {:.3f}".format(nadir,iz,pco_iz,data[i,2],w,Apart_1,data[i,3],AtWb[iz]))
 
         # Now  add in the PCO offsest into the Neq
         # PCO partial ...
@@ -174,11 +260,12 @@ if __name__ == "__main__":
     parser.add_argument('-f', dest='resfile', default='',help="Consolidated one-way LC phase residuals")
     parser.add_argument('-p','--path',dest='path',help="Search for all CL3 files in the directory path") 
 
-    parser.add_argument('--model',dest='model', default=False, action='store_true', help="Create a NADIR model")
+    parser.add_argument('-m','--model',dest='model',choices=['pwl','pwlSite','placeHolder'], help="Create a ESM for satellites only, or for satellites and sites")
     parser.add_argument('--save',dest='save_file',default=False, action='store_true',help="Save the Neq and Atwl matrices into numpy compressed format (npz)")
     parser.add_argument('-l','--load',dest='load_file',help="Load stored NEQ and AtWl matrices from a file")
     parser.add_argument('--lpath',dest='load_path',help="Path to search for .npz files")
-    
+   
+    parser.add_argument('--ls','--load_site',dest='load_site',help="Load in the Neq and AtWl matrices for a specfic station")
     #===================================================================
 
     parser.add_argument("--syyyy",dest="syyyy",type=int,help="Start yyyy")
@@ -229,13 +316,12 @@ if __name__ == "__main__":
             AtWb = npzfile['atwb']
             svs  = np.sort(npzfile['svs'])
             print("Neq shape:",np.shape(Neq))
-            for i in range(0,np.shape(Neq)[0]):
-                print("Neq[0,",i,"]",Neq[200,i])
-            ctr = 0
-            for val in AtWb:
-                print("AtWb", ctr, val)
-                ctr += 1
-
+            #for i in range(0,np.shape(Neq)[0]):
+            #    print("Neq[0,",i,"]",Neq[200,i])
+            #ctr = 0
+            #for val in AtWb:
+            #    print("AtWb", ctr, val)
+            #    ctr += 1
         elif args.load_path:
             phsRGX = re.compile('.npz')
             for root, dirs, files in os.walk(args.load_path):
@@ -261,7 +347,7 @@ if __name__ == "__main__":
                 nctr += 1
             if args.save_file:
                 np.savez('consolidated.npz',neq=Neq,atwb=AtWb,svs=svs)
-
+        
         if not args.load_file and not args.load_path:
             # read in the consolidated LC residuals
             print("")
@@ -312,7 +398,11 @@ if __name__ == "__main__":
                 if i < 0:
                     site_residuals = res.parseConsolidatedNumpy(cl3files[i])
 
-                Neq_tmp,AtWb_tmp = pwl(site_residuals,svs,Neq,AtWb,args.nadir_grid)
+                if args.model == 'pwl':
+                    Neq_tmp,AtWb_tmp = pwl(site_residuals,svs,Neq,AtWb,args.nadir_grid)
+                elif args.model == 'pwlSite':
+                    Neq_tmp,AtWb_tmp = pwlNadirSite(site_residuals,svs,Neq,AtWb,args.nadir_grid)
+
                 Neq = np.add(Neq,Neq_tmp)
                 AtWb = np.add(AtWb,AtWb_tmp)
 
@@ -325,10 +415,25 @@ if __name__ == "__main__":
                     sf = cl3files[i]+".npz"
                     np.savez(sf,neq=Neq,atwb=AtWb,svs=svs)
             
+            for i in range(0,np.shape(Neq)[0]):
+                print("Neq[0,",i,"]",Neq[200,i])
             #=====================================================================
             # End of if not load_file or not load_path
             #=====================================================================
             
+        if args.load_site:
+            sitefile = np.load(args.load_site)
+            S_Neq  = sitefile['neq']
+            S_AtWb = sitefile['atwb']
+            print("Neq:",np.shape(Neq),"AtWl:",np.shape(AtWb))
+            print("S_Neq:",np.shape(S_Neq),"S_AtWl:",np.shape(S_AtWb))
+            #AtWb = np.vstack((AtWb,S_AtWb))
+            AtWb = np.concatenate((AtWb,S_AtWb))
+            print("Neq:",np.shape(Neq),"AtWl:",np.shape(AtWb))
+            from scipy.linalg import block_diag
+            Neq = block_diag(Neq,S_Neq)
+            print("Neq:",np.shape(Neq),"AtWl:",np.shape(AtWb))
+
         if not args.save_file:
             print("Now trying an inverse")
             Cov = np.linalg.pinv(Neq)
@@ -338,8 +443,8 @@ if __name__ == "__main__":
             print("The solution is :",np.shape(Sol))
 
         if args.plotNadir:
-            nad = np.linspace(0,14, int(14./0.1)+1 )
-            num_nad = int(14./0.1) + 1
+            nad = np.linspace(0,14, int(14./args.nadir_grid)+1 )
+            num_nad = int(14./args.nadir_grid) + 1
             ctr = 0
             numParamsPerSat = int(14.0/args.nadir_grid) + 1 
 
@@ -373,6 +478,7 @@ if __name__ == "__main__":
             ctr = 0
             for svn in svs:
                 eiz = numParamsPerSat *ctr + numParamsPerSat 
+                print(ctr,"PCO:",eiz)
                 ax.plot(ctr,Sol[eiz],'k.',linewidth=2)
                 ctr += 1
 

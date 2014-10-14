@@ -903,7 +903,7 @@ def pwl(site_residuals, azSpacing=0.5,zenSpacing=0.5):
 
     return pwl_All, pwlSig_All, stats
 
-def pwlELE(site_residuals, azSpacing=0.5,zenSpacing=0.5):
+def pwlELE(site_residuals, azSpacing=0.5,zenSpacing=0.5,store=False,site="site"):
     """
     PWL piece-wise-linear interpolation fit of phase residuals
 
@@ -966,6 +966,10 @@ def pwlELE(site_residuals, azSpacing=0.5,zenSpacing=0.5):
     stats['chi_inc'] = np.sqrt((prechi-postchi)/numd)
     stats['aic'] = aic
     stats['bic'] = bic
+
+    # Check to see if wee store the partials as a numpy array
+    if store:
+        np.savez(site+'_pwlELE.npz',neq=Neq,atwb=Bvec)
 
     return pwl,pwlsig,stats
 
@@ -1178,6 +1182,9 @@ if __name__ == "__main__":
 
     parser.add_argument('--nadirPlot',dest='nadirPlot',default=False,action='store_true',help="Plot nadir residuals")
     parser.add_argument('--nadirCorrection',dest='nadirCorrection',default=False,action='store_true',help="Apply the satellite Nadir correction to the phase residuals")
+
+    parser.add_argument('--store',dest='store',default=False,action='store_true',
+            help='Store the partials Neq and AtWl as a numpy binary file')
 
     parser.add_argument('--test',dest='test',default=False,action='store_true')
     # Interpolation/extrapolation options
@@ -1396,8 +1403,8 @@ if __name__ == "__main__":
                 #med,pwl_sig = pwlFly(site_residuals,args.esm_grid,args.esm_grid)
 
                 # Compute the elevation depenedent model
-                med_ele, pwl_sig = pwlELE(site_residuals,args.esm_grid,args.esm_grid)
-                print("PWL_ELE ","prechi:{:.2f} postchi:{:.2f} AIC:{:.1f}".format(stats['prechi'],stats['postchi'],stats['chi_inc'],stats['aic']))
+                med_ele, pwl_sig,stats_ele = pwlELE(site_residuals,args.esm_grid,args.esm_grid,args.store,args.site)
+                print("PWL_ELE ","prechi:{:.2f} postchi:{:.2f} AIC:{:.1f}".format(stats_ele['prechi'],stats_ele['postchi'],stats_ele['chi_inc'],stats_ele['aic']))
 
             elif args.model == 'blkmadj':
                 med, medStd,stats = meanAdjust(site_residuals,args.esm_grid,args.esm_grid)
