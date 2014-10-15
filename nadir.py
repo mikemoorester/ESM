@@ -107,25 +107,29 @@ def pwl(site_residuals, svs, Neq, AtWb,nadSpacing=0.1,):
         #Apart[i,iz+1] = (nadir-iz*nadSpacing)/nadSpacing
         Apart_2 = (nadir-niz*nadSpacing)/nadSpacing
 
+        # Now  add in the PCO offsest into the Neq
+        Apart_3 = 1./np.sin(np.radians(nadir)) 
+
         #print("i:{:d}, nadir {:.3f}, iz {:.3f}, nadSpacing {:.3f}, Apart_1 {:.3f}".format(i,nadir,niz,nadSpacing,Apart_1))
         w = 1. #np.sin(data[i,2]/180.*np.pi)
         
-        Neq[iz,iz] = (Apart_1*Apart_1) * 1./w**2
-        Neq[iz,iz+1] = (Apart_2*Apart_1) * 1./w**2
-        Neq[iz+1,iz] = (Apart_2*Apart_1) * 1./w**2
-        Neq[iz+1,iz+1] = (Apart_2*Apart_2) * 1./w**2
+        Neq[iz,iz] += (Apart_1*Apart_1) * 1./w**2
+        Neq[iz,iz+1] += (Apart_2*Apart_1) * 1./w**2
+        Neq[iz+1,iz] += (Apart_2*Apart_1) * 1./w**2
+        Neq[iz+1,iz+1] += (Apart_2*Apart_2) * 1./w**2
+        Neq[iz,pco_iz] += (Apart_1*Apart_3) * 1./w**2
+        Neq[iz+1,pco_iz] += (Apart_2*Apart_3) * 1./w**2
+        Neq[pco_iz,iz] += (Apart_1*Apart_3) * 1./w**2
+        Neq[pco_iz,iz+1] += (Apart_2*Apart_3) * 1./w**2
+        Neq[pco_iz,pco_iz] += (Apart_3 * Apart_3) * 1./w**2
 
-        w = 1. #np.sin(data[i,2]/180.*np.pi)
-        AtWb[iz] = AtWb[iz] + Apart_1 * data[i,3] * 1./w**2
-        AtWb[iz+1] = AtWb[iz+1] + Apart_2 * data[i,3] * 1./w**2
+        AtWb[iz] += Apart_1 * data[i,3] * 1./w**2
+        AtWb[iz+1] += Apart_2 * data[i,3] * 1./w**2
+        AtWb[pco_iz] += Apart_3 * data[i,3] * 1./w**2
         #print("nadir {:.2f}, iz {:d}, pco_iz {:d}, el {:.2f}, w {:.2f}, Apart_1 {:2f}, data {:.2f}, AtWb {:.3f}".format(nadir,iz,pco_iz,data[i,2],w,Apart_1,data[i,3],AtWb[iz]))
 
-        # Now  add in the PCO offsest into the Neq
         # PCO partial ...
         #Apart_3 = 1./np.cos(np.radians(nadir)) 
-        Apart_3 = 1./np.sin(np.radians(nadir)) 
-        Neq[pco_iz,pco_iz] = (Apart_3 * Apart_3) * 1./w**2
-        AtWb[pco_iz] = AtWb[pco_iz] + Apart_3 * data[i,3] * 1./w**2
         #print("nadir {:.2f}, iz{:d}, pco_iz{:d}, Apart_3 {:.3f}".format(nadir,iz,pco_iz,Apart_3))
 
     #f = loglikelihood(np.array(meas_complete),np.array(model_complete))
@@ -141,7 +145,7 @@ def pwl(site_residuals, svs, Neq, AtWb,nadSpacing=0.1,):
     #print("MaX PCO:",max_pco_iz)
     return Neq, AtWb
 
-def pwlNadirSite(site_residuals, svs, Neq, AtWb,nadSpacing=0.1,zenSpacing=0.5):
+def pwlNadirSite(site_residuals, svs, Neq, AtWb,nadSpacing=0.1,zenSpacing=0.5,totalSites=1,siteNumber=0):
     """
     Create a model for the satellites and sites at the same time.
     PWL piece-wise-linear interpolation fit of phase residuals
@@ -159,32 +163,32 @@ def pwlNadirSite(site_residuals, svs, Neq, AtWb,nadSpacing=0.1,zenSpacing=0.5):
     print("finished outlier detection",np.shape(data))
     del tdata
 
-    print("Creating a model for the Satellites and Station Simultaneously")
-
+    print("Creating a model for the Satellites and Station Simultaneously for site number",siteNumber+1,"of",totalSites)
+    
+    # Get the total number of observations for this site
     numd = np.shape(data)[0]
     # add one to make sure we have a linspace which includes 0.0 and 14.0
     # add another parameter for the zenith PCO estimate
     numNADS = int(14.0/nadSpacing) + 1 
     PCOEstimates = 1
-    # 0 => 140 PCV, 141 PCO
-    # 142 => 283 PCV, 284 PCO
     numSVS = np.size(svs)
     numParamsPerSat = numNADS + PCOEstimates
-    numParamsPerSite = 181
-    numParams = numSVS * (numParamsPerSat) + numParamsPerSite
-    #print("\t Have:",numParams,"parameters to solve for")
 
-    Apart = np.zeros((numd,numParams))
+    numParamsPerSite = int(90.0/zenSpacing) + 1
+    numParams = numSVS * (numParamsPerSat) + numParamsPerSite*totalSites
+    print("\t Have:",numParams,"parameters to solve for")
+
     for i in range(0,numd):
         # work out the nadir angle
         nadir = calcNadirAngle(data[i,2])
-        niz = np.floor(nadir/nadSpacing)
-        siz = numParamsPerSat + np.floor(data[i,2]/zenSpacing)
+        niz = int(np.floor(nadir/nadSpacing))
+
+        nsiz = int(np.floor(data[i,2]/zenSpacing))
+        siz = int( numParamsPerSat*numSVS +  siteNumber*numParamsPerSite + nsiz)
 
         # work out the svn number
         svndto =  gt.unix2dt(data[i,0])
         svn = svnav.findSV_DTO(svdat,data[i,4],svndto)
-
         svn_search = 'G{:03d}'.format(svn) 
         ctr = 0
         for sv in svs:
@@ -193,43 +197,64 @@ def pwlNadirSite(site_residuals, svs, Neq, AtWb,nadSpacing=0.1,zenSpacing=0.5):
                 break
             ctr+=1
 
-        w = 1. #np.sin(data[i,2]/180.*np.pi)
+        w = 1.#np.sin(data[i,2]/180.*np.pi)
         iz = int(numParamsPerSat * ctr + niz)
         pco_iz = int(numParamsPerSat *ctr + numParamsPerSat -1)
 
-        if iz >= numParams or pco_iz > numParams:
-            print("prn,svn_search,svn,ctr,size(svs),niz,iz,nadir,numParams:",data[i,4],svn_search,svn,ctr,np.size(svs),niz,iz,nadir,numParams)
-            print(svs)
+        #if iz >= numParams or pco_iz > numParams:
+        #    print("prn,svn_search,svn,ctr,size(svs),niz,iz,nadir,numParams:",data[i,4],svn_search,svn,ctr,np.size(svs),niz,iz,nadir,numParams)
+        #    print(svs)
 
-        Apart[i,iz] = (1.-(nadir-iz*nadSpacing)/nadSpacing)
-        #Apart_1 = (1.-(nadir-niz*nadSpacing)/nadSpacing)
-        Apart[i,iz+1] = (nadir-iz*nadSpacing)/nadSpacing
-        #Apart_2 = (nadir-niz*nadSpacing)/nadSpacing
-
-        AtWb[iz] = AtWb[iz] + Apart[i,iz] * data[i,3] * 1./w**2
-        AtWb[iz+1] = AtWb[iz+1] + Apart[i,iz+1] * data[i,3] * 1./w**2
-
-        Neq[iz,iz] = (Apart[i,iz]*Apart[i,iz]) * 1./w**2
-        Neq[iz,iz+1] = (Apart[i,iz+1]*Apart[i,iz]) * 1./w**2
-        Neq[iz+1,iz] = (Apart[i,iz+1]*Apart[i,iz]) * 1./w**2
-        Neq[iz+1,iz+1] = (Apart[i,iz+1]*Apart[i,iz+1]) * 1./w**2
-
-        # Now  add in the PCO offsest into the Neq
+        # Nadir partials..
+        Apart_1 = (1.-(nadir-niz*nadSpacing)/nadSpacing)
+        Apart_2 = (nadir-niz*nadSpacing)/nadSpacing
         # PCO partial ...
-        #Apart_3 = 1./np.sin(np.radians(nadir)) 
-        Apart[i,pco_iz] = 1./np.sin(np.radians(nadir)) 
-        Neq[pco_iz,pco_iz] = (Apart[i,pco_iz] * Apart[i,pco_iz]) * 1./w**2
-        AtWb[pco_iz] = AtWb[pco_iz] + Apart[i,pco_iz] * data[i,3] * 1./w**2
+        Apart_3 = 1./np.sin(np.radians(nadir)) 
+        # Site partials
+        Apart_4 = (1.-(data[i,2]-nsiz*zenSpacing)/zenSpacing)
+        #print("Apart_4 {:.2f}, ELE: {:.2f}, nsiz {:d}, siz {:d}".format(Apart_4,data[i,2],nsiz,siz))
+        Apart_5 = (data[i,2]-nsiz*zenSpacing)/zenSpacing
+        #print("Apart_5 {:.2f}, ELE: {:.2f}, nsiz {:d}, siz {:d}".format(Apart_5,data[i,2],nsiz,siz))
+
+        AtWb[iz]     = AtWb[iz] + Apart_1 * data[i,3] * 1./w**2
+        AtWb[iz+1]   = AtWb[iz+1] + Apart_2 * data[i,3] * 1./w**2
+        AtWb[pco_iz] = AtWb[pco_iz] + Apart_3 * data[i,3] * 1./w**2
+        AtWb[siz]    = AtWb[siz] + Apart_4 * data[i,3] * 1./w**2
+        AtWb[siz+1]  = AtWb[siz+1] + Apart_5 * data[i,3] * 1./w**2
+
+        Neq[iz,iz]     = Neq[iz,iz] + Apart_1 * Apart_1 * 1./w**2
+        Neq[iz,iz+1]   = Neq[iz,iz+1] + Apart_1 * Apart_2 * 1./w**2
+        Neq[iz,pco_iz] = Neq[iz,pco_iz] + Apart_1 * Apart_3 * 1./w**2
+        Neq[iz,siz]    = Neq[iz,siz] + Apart_1 * Apart_4 * 1./w**2
+        Neq[iz,siz+1]  = Neq[iz,siz+1] + Apart_1 * Apart_5 * 1./w**2
+
+        Neq[iz+1,iz]     = Neq[iz+1,iz] + Apart_2 * Apart_1 * 1./w**2
+        Neq[iz+1,iz+1]   = Neq[iz+1,iz+1] + Apart_2 * Apart_2 * 1./w**2
+        Neq[iz+1,pco_iz] = Neq[iz+1,pco_iz] + Apart_2 * Apart_3 * 1./w**2
+        Neq[iz+1,siz]    = Neq[iz+1,siz] + Apart_2 * Apart_4 * 1./w**2
+        Neq[iz+1,siz+1]  = Neq[iz+1,siz+1] + Apart_2 * Apart_5 * 1./w**2
+
+        Neq[pco_iz,iz]     = Neq[pco_iz,iz] + Apart_3 * Apart_1 * 1./w**2
+        Neq[pco_iz,iz+1]   = Neq[pco_iz,iz+1] + Apart_3 * Apart_2 * 1./w**2
+        Neq[pco_iz,pco_iz] = Neq[pco_iz,pco_iz] + Apart_3 * Apart_3 * 1./w**2
+        Neq[pco_iz,siz]    = Neq[pco_iz,siz] + Apart_3 * Apart_4 * 1./w**2
+        Neq[pco_iz,siz+1]  = Neq[pco_iz,siz+1] + Apart_3 * Apart_5 * 1./w**2
+
+        Neq[siz,iz]     = Neq[siz,iz] + Apart_4 * Apart_1 * 1./w**2
+        Neq[siz,iz+1]   = Neq[siz,iz+1] + Apart_4 * Apart_2 * 1./w**2
+        Neq[siz,pco_iz] = Neq[siz,pco_iz] + Apart_4 * Apart_3 * 1./w**2
+        Neq[siz,siz]    = Neq[siz,siz] + Apart_4 * Apart_4 * 1./w**2
+        Neq[siz,siz+1]  = Neq[siz,siz+1] + Apart_4 * Apart_5 * 1./w**2
+
+        Neq[siz+1,iz]     = Neq[siz+1,iz] + Apart_5 * Apart_1 * 1./w**2
+        Neq[siz+1,iz+1]   = Neq[siz+1,iz+1] + Apart_5 * Apart_2 * 1./w**2
+        Neq[siz+1,pco_iz] = Neq[siz+1,pco_iz] + Apart_5 * Apart_3 * 1./w**2
+        Neq[siz+1,siz]    = Neq[siz+1,siz] + Apart_5 * Apart_4 * 1./w**2
+        Neq[siz+1,siz+1]  = Neq[siz+1,siz+1] + Apart_5 * Apart_5 * 1./w**2
+
         #print("nadir {:.2f}, iz{:d}, pco_iz{:d}, Apart_3 {:.3f}".format(nadir,iz,pco_iz,Apart_3))
 
-        # Site parameters
-        Apart[i,siz] = (1.-(data[i,2]-iz*zenSpacing)/zenSpacing)
-        Apart[i,siz+1] = (data[i,2]-iz*zenSpacing)/zenSpacing
         
-    del Neq
-
-    Neq = np.dot(Apart.T,Apart) 
-
     #f = loglikelihood(np.array(meas_complete),np.array(model_complete))
     #numd = np.size(meas_complete)
     #dof = numd - np.shape(Sol_complete)[0]
@@ -266,6 +291,7 @@ if __name__ == "__main__":
 
     
     parser.add_argument('--nadir_grid', dest='nadir_grid', default=0.1, type=float,help="Grid spacing to model NADIR corrections (default = 0.1 degrees)")
+    parser.add_argument('--zenith_grid', dest='zen', default=0.5, type=float,help="Grid spacing to model Site corrections (default = 0.5 degrees)")
     parser.add_argument('-f', dest='resfile', default='',help="Consolidated one-way LC phase residuals")
     parser.add_argument('-p','--path',dest='path',help="Search for all CL3 files in the directory path") 
 
@@ -299,6 +325,7 @@ if __name__ == "__main__":
     nadirData = {}
     cl3files = []
     npzfiles = []
+    totalSites = 1
 
     if args.model: 
         #===================================================================
@@ -315,6 +342,9 @@ if __name__ == "__main__":
                     if phsRGX.search(lfile):
                         print("Found:",args.path + "/" + lfile)
                         cl3files.append(args.path + "/"+ lfile)
+            cl3files = np.sort(cl3files)
+            totalSites = np.size(cl3files)
+
         elif args.load_file:
             print("")
             print("Reading in the Neq and AtWb matrices from:",args.load_file)
@@ -362,7 +392,8 @@ if __name__ == "__main__":
             print("")
             print("Reading in the consolidated phase residuals from:",args.resfile)
             print("")
-            site_residuals = res.parseConsolidatedNumpy(args.resfile)
+            site_residuals = res.parseConsolidatedNumpy(cl3files[0])
+            #site_residuals = res.parseConsolidatedNumpy(args.resfile)
 
             if args.syyyy and args.eyyyy:
                 dt_start = dt.datetime(int(args.syyyy),01,01) + dt.timedelta(days=int(args.sdoy))
@@ -394,8 +425,8 @@ if __name__ == "__main__":
             if args.model == 'pwl':
                 numParams = numSVS * (numParamsPerSat)
             elif args.model == 'pwlSite':
-                numParamsPerSite = 181
-                numParams = numSVS * (numParamsPerSat) + numParamsPerSite
+                numParamsPerSite = int(90./args.zen) + 1 
+                numParams = numSVS * (numParamsPerSat) + numParamsPerSite * np.size(cl3files)
             print("\t Have:",numParams,"parameters to solve for")
 
             Neq = np.zeros((numParams,numParams)) #dtype=float) * 0.001
@@ -408,13 +439,13 @@ if __name__ == "__main__":
             for i in range(0,np.size(cl3files)) :
                 # we don't need to read the residuals in for the first iteration
                 # this has already been done previously to scan for start and stop times
-                if i < 0:
+                if i > 0:
                     site_residuals = res.parseConsolidatedNumpy(cl3files[i])
 
                 if args.model == 'pwl':
                     Neq_tmp,AtWb_tmp = pwl(site_residuals,svs,Neq,AtWb,args.nadir_grid)
                 elif args.model == 'pwlSite':
-                    Neq_tmp,AtWb_tmp = pwlNadirSite(site_residuals,svs,Neq,AtWb,args.nadir_grid)
+                    Neq_tmp,AtWb_tmp = pwlNadirSite(site_residuals,svs,Neq,AtWb,args.nadir_grid,0.5,np.size(cl3files),i)
 
                 Neq = np.add(Neq,Neq_tmp)
                 AtWb = np.add(AtWb,AtWb_tmp)
@@ -428,8 +459,8 @@ if __name__ == "__main__":
                     sf = cl3files[i]+".npz"
                     np.savez(sf,neq=Neq,atwb=AtWb,svs=svs)
             
-            for i in range(0,np.shape(Neq)[0]):
-                print("Neq[0,",i,"]",Neq[200,i])
+            #for i in range(0,np.shape(Neq)[0]):
+            #    print("Neq[0,",i,"]",Neq[200,i])
             #=====================================================================
             # End of if not load_file or not load_path
             #=====================================================================
@@ -460,6 +491,8 @@ if __name__ == "__main__":
             num_nad = int(14./args.nadir_grid) + 1
             ctr = 0
             numParamsPerSat = int(14.0/args.nadir_grid) + 1 
+
+            del Neq, AtWb
 
             for svn in svs:
                 fig = plt.figure(figsize=(3.62, 2.76))
@@ -499,8 +532,8 @@ if __name__ == "__main__":
                 ax.plot(ctr,Sol[eiz],'k.',linewidth=2)
                 ctr += 1
 
-            ax.set_xlabel('Nadir Angle (degrees)',fontsize=8)
-            ax.set_ylabel('Phase Residuals (mm)',fontsize=8)
+            ax.set_xlabel('SVN',fontsize=8)
+            ax.set_ylabel('Adjustment to PCO (mm)',fontsize=8)
             #ax.set_xlim([0, 14])
 
             for item in ([ax.title, ax.xaxis.label, ax.yaxis.label] +
@@ -509,113 +542,35 @@ if __name__ == "__main__":
 
             plt.tight_layout()
 
+            #==================================================
+            if args.model == 'pwlSite':
+                ctr = 0
+                numSVS = np.size(svs)
+                numNADS = int(14.0/args.nadir_grid) + 1 
+                numParamsPerSat = numNADS + PCOEstimates
+                print("Number of Params per Sat:",numParamsPerSat,"numNads",numNADS,"Sol",np.shape(Sol))
+                numParams = numSVS * (numParamsPerSat) + numParamsPerSite * totalSites 
+                for snum in range(0,totalSites):
+                    fig = plt.figure(figsize=(3.62, 2.76))
+                    fig.canvas.set_window_title("Site_"+str(snum)+"_elevation_model.png")
+                    ax = fig.add_subplot(111)
+                    siz = numParamsPerSat*numSVS + snum * numParamsPerSite 
+                    eiz = siz + numParamsPerSite 
+                    ele = np.linspace(0,90,numParamsPerSite)
+                    print("Sol",np.shape(Sol),"siz  ",siz,eiz)
+                    ax.plot(ele,Sol[siz:eiz],'k.',linewidth=2)
+
+                    ax.set_xlabel('Elevation Angle',fontsize=8)
+                    ax.set_ylabel('Adjustment to PCO (mm)',fontsize=8)
+                    #ax.set_xlim([0, 14])
+
+                    for item in ([ax.title, ax.xaxis.label, ax.yaxis.label] +
+                        ax.get_xticklabels() + ax.get_yticklabels()):
+                        item.set_fontsize(8)
+
+                    plt.tight_layout()
 
 
             plt.show()
 
-
-#       print("")
-#       print("Adding the ESM to the antenna PCV model to be saved to:",args.outfile)
-#       print("")
-#       with open(args.outfile,'w') as f:
-#           print_antex_file_header(f)
-
-#           for m in range(0,num_models):
-#           
-#               antType = gsf.antennaType( sdata, change['start_yyyy'][m], change['start_ddd'][m] )
-#               antenna = ant.antennaType(antType,antennas)
-#               print("Model",m+1," is being added to the antenna PCV for:",antType)
-#               print_antex_header(antType, change['valid_from'][m],change['valid_to'][m],f)
-#               freq_ctr = 0
-#               for freq in ['G01','G02'] :
-#                   pco = antenna['PCO_'+freq]
-#                   print_start_frequency(freq,pco,f)
-#                   noazi = np.mean(models[m,:,:,freq_ctr],axis=0)
-#                   print_antex_noazi(noazi,f)
-
-#                   for i in range(0,int(360./args.esm_grid)+1):
-#                       print_antex_line(float(i*args.esm_grid),models[m,i,:,freq_ctr],f)
-#                   print_end_frequency(freq,f)
-#                   freq_ctr +=1
-#               print_end_antenna(f)
-#       f.close()
     print("FINISHED")
-#   if args.nadir:
-#       nadir = np.genfromtxt(args.nadir)
-#       sv_nums = np.unique(nadir[:,2])
-#       nadirDataStd = {}
-#       for sv in sv_nums:
-#           criterion = nadir[:,2] == sv 
-#           ind = np.array(np.where(criterion))[0]
-#           nadir_medians = nanmean(nadir[ind,3:73],axis=0)
-#           nadir_stdev   = nanstd(nadir[ind,3:73],axis=0)
-#           nadirData[str(int(sv))] = nadir_medians
-#           #nadirDataStd[str(int(sv))] = nadir_stdev
-
-#       if args.nadirPlot:
-#           nadir = np.linspace(0,13.8, int(14.0/0.2) )
-#           svdat = svnav.parseSVNAV(args.svnavFile)
-
-#           # prepare a plot for each satellite block
-#           figBLK = []
-#           axBLK = []
-#           for i in range(0,7):
-#               figTmp = plt.figure(figsize=(3.62, 2.76))
-#               figBLK.append(figTmp)
-#               axTmp  = figBLK[i].add_subplot(111)
-#               axBLK.append(axTmp)
-
-#           # now plot by block
-#           for sv in nadirData:
-#               blk = svnav.findBLK_SV(svdat,sv)
-#               axBLK[int(blk)-1].plot(nadir,nadirData[sv],'-',alpha=0.7,linewidth=1,label="SV "+str(sv))
-#           # tidy each plot up
-#           for i in range(0,7):
-#               axBLK[i].set_xlabel('Nadir Angle (degrees)',fontsize=8)
-#               axBLK[i].set_ylabel('Residual (mm)',fontsize=8)
-#               axBLK[i].set_xlim([0, 14])
-#               axBLK[i].set_ylim([-5,5])
-#               axBLK[i].legend(fontsize=8,ncol=3)
-#               title = svnav.blockType(i+1)
-#               axBLK[i].set_title(title,fontsize=8)
-#               for item in ([axBLK[i].title, axBLK[i].xaxis.label, axBLK[i].yaxis.label] +
-#                   axBLK[i].get_xticklabels() + axBLK[i].get_yticklabels()):
-#                   item.set_fontsize(8)
-
-#           # Do a plot of all the satellites now..
-#           fig = plt.figure(figsize=(3.62, 2.76))
-#           ax = fig.add_subplot(111)
-
-#           for sv in nadirData:
-#               ax.plot(nadir,nadirData[sv],'-',alpha=0.7,linewidth=1)
-
-#           ax.set_xlabel('Nadir Angle (degrees)',fontsize=8)
-#           ax.set_ylabel('Residual (mm)',fontsize=8)
-#           ax.set_xlim([0, 14])
-#           ax.set_ylim([-5,5])
-
-#           for item in ([ax.title, ax.xaxis.label, ax.yaxis.label] +
-#               ax.get_xticklabels() + ax.get_yticklabels()):
-#               item.set_fontsize(8)
-
-#           plt.tight_layout()
-#   
-#           # Plot the satellites by block
-#           blocks = np.unique(nadir[:,])
-#           plt.show()
-
-    
-#       if args.nadirModel:
-#           # read in the antenna satellite model
-#           antennas = ant.parseANTEX(args.antex)
-#           with open('satmod.dat','w') as f:
-#               ant.printAntexHeader(f)
-
-#               for sv in nadirData:
-#                   svn = "{:03d}".format(int(sv))
-#                   scode = 'G' + str(svn)
-#                   antenna = ant.antennaScode(scode,antennas)
-#                   for a in antenna:
-#                       adjustedAnt = satelliteModel(a, nadirData[sv])
-#                       ant.printSatelliteModel(adjustedAnt,f)
-
