@@ -472,7 +472,6 @@ if __name__ == "__main__":
             # keep the site model free ~ 10mm  0.01 => 1/sqrt(0.01) = 10 (mm)
             # Adding 1mm constraint to satellites
             sPCV_constraint = 0.01
-            #sPCO_constraint
             sPCV_window = 1.0     # assume the PCV variation is correlated at this degree level
             site_constraint = 10.0
             site_window = 1.5
@@ -492,11 +491,18 @@ if __name__ == "__main__":
                 print("site_corr:", site_corr)
                 
                 for s in range(0,numSVS):
-                    for ind in range(0,numNADS-np.size(sPCV_corr) ):
+                    #for ind in range(0,numNADS-np.size(sPCV_corr) ):
+                    for ind in range(0,numNADS ):
                         start = (s * numParamsPerSat) + ind
-                        end = start + np.size(sPCV_corr)
-                        C[start,start:end] = sPCV_corr[0:np.size(sPCV_corr)] 
-                        C[start:end,start] = sPCV_corr[0:np.size(sPCV_corr)] 
+                        if ind > (numNADS - np.size(sPCV_corr)):
+                            end = start + (numNADS - ind) 
+                        else:
+                            end = start + np.size(sPCV_corr)
+                        
+                        #C[start,start:end] = sPCV_corr[0:np.size(sPCV_corr)] 
+                        #C[start:end,start] = sPCV_corr[0:np.size(sPCV_corr)] 
+                        C[start,start:end] = sPCV_corr[0:(end - start)] 
+                        C[start:end,start] = sPCV_corr[0:(end - start)] 
 
                 for s in range(0,numSites):
                     for ind in range(0,numParamsPerSite-np.size(site_corr) ):

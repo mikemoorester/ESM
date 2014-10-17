@@ -1446,9 +1446,9 @@ if __name__ == "__main__":
                     ele_model.append(nanmean(med[:,j]))
 
                 #if args.model == 'pwl': 
-                ax.plot(elevation,med_ele,'r-',linewidth=2)
+                ax.plot(elevation,med_ele[::-1],'r-',linewidth=2)
 
-                ax.plot(elevation,ele_model[:],'b-',linewidth=2)
+                #ax.plot(elevation,ele_model[:],'b-',linewidth=2)
                 ax.set_xlabel('Elevation Angle (degrees)',fontsize=8)
                 ax.set_ylabel('Phase Residuals (mm)',fontsize=8)
                 ax.set_xlim([0, 90])
