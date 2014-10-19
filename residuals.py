@@ -203,6 +203,7 @@ def parseDPH(dphFile) :
         
     return obs 
 
+#def parseConsolidatedNumpy(cfile,dt_start=0,dt_stop=0):
 def parseConsolidatedNumpy(cfile):
     '''
     parseConsolidated   Read in a consolidate phase residual file that contains all of the epochs
@@ -238,10 +239,20 @@ def parseConsolidatedNumpy(cfile):
                 residuals[ctr,3] = float(lc)
                 residuals[ctr,4] = int(prn)
                 ctr += 1
-            #residuals.append(tmp)
+ 
+    # check to see if we are tie filtering the residuals
+    #if dt_start > 0.0001 :
+    #    criterion = ( ( residuals[:,0] >= calendar.timegm(dt_start.utctimetuple()) ) &
+    #                         ( residuals[:,0] < calendar.timegm(dt_stop.utctimetuple()) ) )
+    #    tind = np.array(np.where(criterion))[0]
+    #    print("going from:",nlines,"to:",np.size(tind))
+    #    res = np.zeros((np.size(tind,5)))
+    #    res = residuals[tind,:]
+    #else:
+    #print("no time filtering")
     res = np.zeros((ctr,5))
     res = residuals[0:ctr,:]
-    
+
     return res 
 
 def parseConsolidated(cfile):

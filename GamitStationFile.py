@@ -50,8 +50,19 @@ def parseSite(station_file,site):
 
 def determineESMChanges(start,end,sdata):
     '''
+    determineESMChanges(start,end,sdata)
+
         Determine if there have been any changes, as reported by the station_file,
         that will require an new ESM to be computed
+
+    Input:
+        start = date time object
+        end   = date time object
+        sdata = station data
+
+    Output:
+        change -> dictionary of changes
+
     '''
     change = {}
     change['start_yyyy'] = [] # date antenna was installed on site
