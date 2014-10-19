@@ -244,22 +244,18 @@ def modelStats(model,data, azSpacing=0.5,zenSpacing=0.5):
 
 # calculate the cost function, that is the Mean Square Error
 def calcMSE(model,data,azGridSpacing=0.5,zenGridSpacing=0.5):
+    mse = 0
 
-    #az = np.linspace(0,360, int(360./azGridSpacing)+1 )
     az = np.linspace(0,360, int(360./azGridSpacing) )
     zen = np.linspace(0,90, int(90./zenGridSpacing)+1 )
-    print("MODEL shape:",np.shape(model))
+
     model = np.nan_to_num(model)
     model_test = interpolate.interp2d(az, zen, model.reshape(az.size * zen.size,), kind='linear')
 
-    print("MODEL shape:",np.shape(model),"Model test:",np.shape(model_test))
-    mse = 0
 
     for i in range(0,np.shape(data)[0]):
-    #   mse += (data[i,2] - model_test(data[i,0],data[i,1]))[0]**2
         mse += (data[i,3] - model_test(data[i,1],data[i,2]))[0]**2
     mse  = 1./(2.*np.shape(data)[0]) * mse
-    #print("CalcMSE:",mse)
 
     return mse
 
@@ -1333,41 +1329,26 @@ if __name__ == "__main__":
         print("\t\t4) Change of radome")
         print("")
         sdata = gsf.parseSite(args.station_file,args.site.upper())
-    
-        change = {}
-        change['start_yyyy'] = [] # date antenna was installed on site
-        change['start_ddd']  = []
-        change['stop_yyyy']  = [] # date antenna was removed from the site
-        change['stop_ddd']   = []
-        change['ind']        = []
-        change['valid_from'] = []
-        change['valid_to']   = []
+        change = gsf.determineESMChanges(dt_start,dt_stop,sdata)
+
+#       change = {}
+#       change['start_yyyy'] = [] # date antenna was installed on site
+#       change['start_ddd']  = []
+#       change['stop_yyyy']  = [] # date antenna was removed from the site
+#       change['stop_ddd']   = []
+#       change['ind']        = []
+#       change['valid_from'] = []
+#       change['valid_to']   = []
 
 
-        # set up the initial instrument to have a start time as the first epoch we deal with
-        change['start_yyyy'].append(dt_start.strftime("%Y"))
-        change['start_ddd'].append(dt_start.strftime("%j"))
+#       # set up the initial instrument to have a start time as the first epoch we deal with
+#       change['start_yyyy'].append(dt_start.strftime("%Y"))
+#       change['start_ddd'].append(dt_start.strftime("%j"))
 
         # find the indices where the change occurs due to an antenna type / radome change
         ind = gsf.antennaChange(sdata)
 
-        for i in ind:
-            sdd = "{:03d}".format(int(sdata['start_ddd'][i]))
-            stag = int( sdata['start_yyyy'][i] + sdd ) 
-            if stag >= res_start and stag <= res_stop :
-                print("There is a change on",sdata['start_yyyy'][i],sdata['start_ddd'][i],"to",sdata['antenna_type'][i],sdata['dome_type'][i])
-                change['start_yyyy'].append(sdata['start_yyyy'][i])
-                change['start_ddd'].append(sdata['start_ddd'][i])
-                change['ind'].append(i)
-
-                # update the stop time for the previous record
-                change['stop_yyyy'].append(sdata['start_yyyy'][i])
-                change['stop_ddd'].append(sdata['start_ddd'][i])
-
-        change['stop_yyyy'].append(dt_stop.strftime("%Y"))
-        change['stop_ddd'].append(dt_stop.strftime("%j"))
-
-        models = np.zeros((np.size(change['ind'])+1,int(360./0.5)+1,int(90/0.5)+1,2))
+        models = np.zeros((np.size(change['ind'])+1,int(360./args.esm_grid)+1,int(90/args.esm_grid)+1,2))
         num_models = np.size(change['ind'])+1
         print("\nNumber of models which need to be formed:", num_models)
 
@@ -1438,7 +1419,8 @@ if __name__ == "__main__":
                 naz  = int(360./args.esm_grid) + 1
 
                 for i in range(0,720):
-                    ax.scatter(90.-ele,med[i,:],s=1,alpha=0.5,c='k')
+                    #ax.scatter(90.-ele,med[i,:],s=1,alpha=0.5,c='k')
+                    ax.scatter(ele,med[i,:],s=1,alpha=0.5,c='k')
 
                 elevation = []
                 for j in range(0,nzen):
@@ -1448,7 +1430,6 @@ if __name__ == "__main__":
                 #if args.model == 'pwl': 
                 ax.plot(elevation,med_ele[::-1],'r-',linewidth=2)
 
-                #ax.plot(elevation,ele_model[:],'b-',linewidth=2)
                 ax.set_xlabel('Elevation Angle (degrees)',fontsize=8)
                 ax.set_ylabel('Phase Residuals (mm)',fontsize=8)
                 ax.set_xlim([0, 90])
