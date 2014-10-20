@@ -151,20 +151,27 @@ def pwlNadirSite(site_residuals, svs, params, nadSpacing=0.1,zenSpacing=0.5):
     #numParams = numSVS * (numParamsPerSat) + numParamsPerSite*params['numModels']
     numParams = tSat + tSite 
 
-    print("\t Have:",numParams,"parameters to solve for",params['site'],"Number of Models:",params['numModels'])
+    #print("\t Have:",numParams,"parameters to solve for",params['site'],"Number of Models:",params['numModels'])
+    print("------------------------------------------------")
+    print("Processing Site:                        ",params['site'])
+    print("------------------------------------------------")
     print("Sat Params:----------------",numParamsPerSat)
     print("Number of Sats:------------",np.size(svs))
     print("Total satellite parameters:-------------",tSat)
     print("Site Params:---------------",numParamsPerSite)
     print("Number of Sites:-----------",params['numModels'])
     print("Total Site Params:----------------------",tSite)
+    print("------------------------------------------------")
     print("Total Params:---------------------------",numParams)
+    print("------------------------------------------------")
+
+    # Creating matrices
     Neq = np.zeros((numParams,numParams))
-    AtWl = np.zeros(numParams)
+    AtWb = np.zeros(numParams)
     change = params['changes']
 
     for m in range(0,int(params['numModels'])):
-        print("\t\tCreating model",m+1,"of",params['numModels'])
+        print(params['site'],"----> creating model",m+1,"of",params['numModels'])
 
         # start_yyyy and start_ddd should always be defind, however stop_dd may be absent
         #ie no changes have ocured since the last setup
@@ -181,7 +188,10 @@ def pwlNadirSite(site_residuals, svs, params, nadSpacing=0.1,zenSpacing=0.5):
         mind = np.array(np.where(criterion))[0]
         #print("MIND:",np.size(mind))
         #print("rejecting any residuals greater than 100mm",np.shape(site_residuals))
-        tdata = res.reject_absVal(site_residuals[mind,0:],100.)
+        tdata = res.reject_absVal(site_residuals[mind,:],100.)
+        if m >= (int(params['numModels']) -1 ):
+            del site_residuals
+
         #print("rejecting any residuals greater than 5 sigma",np.shape(tdata))
         data = res.reject_outliers_elevation(tdata,5,0.5)
         #print("finished outlier detection",np.shape(data))
@@ -197,7 +207,7 @@ def pwlNadirSite(site_residuals, svs, params, nadSpacing=0.1,zenSpacing=0.5):
 
             nsiz = int(np.floor(data[i,2]/zenSpacing))
             siz = int( tSat +  m*numParamsPerSite + nsiz)
-
+            #print("Site obs bin indicies (data,zenspacing, nsiz,siz)",data[i,2],zenSpacing,nsiz,tSat,siz,tSite)
             # work out the svn number
             svndto =  gt.unix2dt(data[i,0])
             svn = svnav.findSV_DTO(svdat,data[i,4],svndto)
@@ -211,9 +221,9 @@ def pwlNadirSite(site_residuals, svs, params, nadSpacing=0.1,zenSpacing=0.5):
 
             w = 1.#np.sin(data[i,2]/180.*np.pi)
             iz = int(numParamsPerSat * ctr + niz)
-            pco_iz = int(numParamsPerSat *ctr + numNads )
+            pco_iz = int(numParamsPerSat *ctr + numNADS )
 
-            print("Indices m,iz,pco_iz,siz:",m,iz,pco_iz,siz)
+            #print("Indices m,iz,pco_iz,siz:",m,iz,pco_iz,siz,i,numd)
             # Nadir partials..
             Apart_1 = (1.-(nadir-niz*nadSpacing)/nadSpacing)
             Apart_2 = (nadir-niz*nadSpacing)/nadSpacing
@@ -222,12 +232,15 @@ def pwlNadirSite(site_residuals, svs, params, nadSpacing=0.1,zenSpacing=0.5):
             # Site partials
             Apart_4 = (1.-(data[i,2]-nsiz*zenSpacing)/zenSpacing)
             Apart_5 = (data[i,2]-nsiz*zenSpacing)/zenSpacing
+            #print("Finished forming Design matrix")
 
+            #print("Starting AtWb",np.shape(AtWb),iz,pco_iz,siz)
             AtWb[iz]     = AtWb[iz]     + Apart_1 * data[i,3] * 1./w**2
             AtWb[iz+1]   = AtWb[iz+1]   + Apart_2 * data[i,3] * 1./w**2
             AtWb[pco_iz] = AtWb[pco_iz] + Apart_3 * data[i,3] * 1./w**2
             AtWb[siz]    = AtWb[siz]    + Apart_4 * data[i,3] * 1./w**2
             AtWb[siz+1]  = AtWb[siz+1]  + Apart_5 * data[i,3] * 1./w**2
+            #print("Finished forming b vector")
 
             Neq[iz,iz]     = Neq[iz,iz]     + Apart_1 * Apart_1 * 1./w**2
             Neq[iz,iz+1]   = Neq[iz,iz+1]   + Apart_1 * Apart_2 * 1./w**2
@@ -240,12 +253,14 @@ def pwlNadirSite(site_residuals, svs, params, nadSpacing=0.1,zenSpacing=0.5):
             Neq[iz+1,pco_iz] = Neq[iz+1,pco_iz] + Apart_2 * Apart_3 * 1./w**2
             Neq[iz+1,siz]    = Neq[iz+1,siz]    + Apart_2 * Apart_4 * 1./w**2
             Neq[iz+1,siz+1]  = Neq[iz+1,siz+1]  + Apart_2 * Apart_5 * 1./w**2
-
+            #print("Finished NEQ Nadir estimates")
+            
             Neq[pco_iz,iz]     = Neq[pco_iz,iz]     + Apart_3 * Apart_1 * 1./w**2
             Neq[pco_iz,iz+1]   = Neq[pco_iz,iz+1]   + Apart_3 * Apart_2 * 1./w**2
             Neq[pco_iz,pco_iz] = Neq[pco_iz,pco_iz] + Apart_3 * Apart_3 * 1./w**2
             Neq[pco_iz,siz]    = Neq[pco_iz,siz]    + Apart_3 * Apart_4 * 1./w**2
             Neq[pco_iz,siz+1]  = Neq[pco_iz,siz+1]  + Apart_3 * Apart_5 * 1./w**2
+            #print("Finished NEQ PCO estimates")
 
             Neq[siz,iz]     = Neq[siz,iz]     + Apart_4 * Apart_1 * 1./w**2
             Neq[siz,iz+1]   = Neq[siz,iz+1]   + Apart_4 * Apart_2 * 1./w**2
@@ -258,8 +273,10 @@ def pwlNadirSite(site_residuals, svs, params, nadSpacing=0.1,zenSpacing=0.5):
             Neq[siz+1,pco_iz] = Neq[siz+1,pco_iz] + Apart_5 * Apart_3 * 1./w**2
             Neq[siz+1,siz]    = Neq[siz+1,siz]    + Apart_5 * Apart_4 * 1./w**2
             Neq[siz+1,siz+1]  = Neq[siz+1,siz+1]  + Apart_5 * Apart_5 * 1./w**2
+            #print("Finished NEQ Site estimates")
 
-        
+    print("Normal finish of pwlNadirSite")
+
     return Neq, AtWb
 
 def neqBySite(params,svs,args):
@@ -273,8 +290,8 @@ def neqBySite(params,svs,args):
 
     print("Returned Neq, AtWb:",np.shape(Neq_tmp),np.shape(AtWb_tmp))
             
-    sf = filename+".npz"
-    np.savez(sf,neq=Neq_tmp,atwb=AtWb_tmp,svs=svs)
+    sf = params['filename']+".npz"
+    np.savez_compressed(sf,neq=Neq_tmp,atwb=AtWb_tmp,svs=svs)
 
     return sf 
 
@@ -342,7 +359,6 @@ if __name__ == "__main__":
     parser.add_argument('-l','--load',dest='load_file',help="Load stored NEQ and AtWl matrices from a file")
     parser.add_argument('--lpath',dest='load_path',help="Path to search for .npz files")
    
-    parser.add_argument('--ls','--load_site',dest='load_site',help="Load in the Neq and AtWl matrices for a specfic station")
     parser.add_argument('--cpu',dest='cpu',type=int,default=4,help="Maximum number of cpus to use")
     #===================================================================
 
@@ -389,41 +405,6 @@ if __name__ == "__main__":
             cl3files = np.sort(cl3files)
             totalSites = np.size(cl3files)
 
-        elif args.load_file:
-            print("")
-            print("Reading in the Neq and AtWb matrices from:",args.load_file)
-            print("")
-
-            npzfile = np.load(args.load_file)
-            Neq  = npzfile['neq']
-            AtWb = npzfile['atwb']
-            svs  = np.sort(npzfile['svs'])
-        elif args.load_path:
-            phsRGX = re.compile('.npz')
-            for root, dirs, files in os.walk(args.load_path):
-                path = root.split('/')
-                for lfile in files:
-                    if phsRGX.search(lfile):
-                        print("Found:",args.load_path + "/" + lfile)
-                        npzfiles.append(args.load_path + "/"+ lfile)
-            nctr = 0
-            for nfile in (npzfiles):
-                npzfile = np.load(nfile)
-                Neq_tmp  = npzfile['neq']
-                AtWb_tmp = npzfile['atwb']
-                svs_tmp  = npzfile['svs']
-                if nctr == 0:
-                    Neq = Neq_tmp
-                    AtWb = AtWb_tmp
-                    svs = np.sort(svs_tmp)
-                else:
-                    Neq  = np.add(Neq,Neq_tmp)
-                    AtWb = np.add(AtWb,AtWb_tmp)
-
-                nctr += 1
-            if args.save_file:
-                np.savez('consolidated.npz',neq=Neq,atwb=AtWb,svs=svs)
-        
         if not args.load_file and not args.load_path:
             # read in the consolidated LC residuals
             if args.syyyy and args.eyyyy:
@@ -469,6 +450,10 @@ if __name__ == "__main__":
                 info['changes']   = changes
                 params.append(info)
 
+            # Read in the residual files and create the normal equations
+            multiprocessing.freeze_support()
+            setUpTasks(cl3files,svs,args,params)
+
             #=====================================================================
             # add one to make sure we have a linspace which includes 0.0 and 14.0
             # add another parameter for the zenith PCO estimate
@@ -498,7 +483,8 @@ if __name__ == "__main__":
             # keep the site model free ~ 10mm  0.01 => 1/sqrt(0.01) = 10 (mm)
             # Adding 1 mm constraint to satellites
             #========================================================================
-            sPCV_constraint = 0.01
+            sPCV_constraint = 0.1
+            #sPCV_constraint = 0.01
             sPCV_window = 1.0     # assume the PCV variation is correlated at this degree level
             site_constraint = 10.0
             site_window = 1.5
@@ -544,25 +530,31 @@ if __name__ == "__main__":
 
             Neq = np.add(Neq,C_inv)
 
-            print("Will have to solve for ",np.size(svs),"sats",svs)
-            print("\t Creating a PWL linear model for Nadir satelites for SVS:\n")
+            #print("Will have to solve for ",np.size(svs),"sats",svs)
+            #print("\t Creating a PWL linear model for Nadir satelites for SVS:\n")
 
-            multiprocessing.freeze_support()
-            setUpTasks(cl3files,svs,args,params)
+            #multiprocessing.freeze_support()
+            #setUpTasks(cl3files,svs,args,params)
 
             #=====================================================================
             # Now read in all of the numpy compressed files
             #=====================================================================
-            npyRGX = re.compile('.npz')
-            for root, dirs, files in os.walk(args.path):
-                path = root.split('/')
-                for lfile in files:
-                    if npyRGX.search(lfile):
-                        print("Found:",args.path + "/" + lfile)
-                        npzfiles.append(args.path + "/"+ lfile)
-            # Start stacking the normal equations together
             nctr = 0
-            for nfile in (npzfiles):
+
+            for f in range(0,np.size(params)):
+                filename = os.path.basename(cl3files[f])
+                params[f]['npzfile'] = params[f]['filename']+'.npz'
+                nfile = params[f]['npzfile'] 
+
+            #npyRGX = re.compile('.npz')
+            #for root, dirs, files in os.walk(args.path):
+            #    path = root.split('/')
+            #    for lfile in files:
+            #        if npyRGX.search(lfile):
+            #            print("Found:",args.path + "/" + lfile)
+            #            npzfiles.append(args.path + "/"+ lfile)
+            # Start stacking the normal equations together
+            #for nfile in (npzfiles):
                 npzfile = np.load(nfile)
                 Neq_tmp  = npzfile['neq']
                 AtWb_tmp = npzfile['atwb']
@@ -577,48 +569,115 @@ if __name__ == "__main__":
                 Neq[0:tSat-1,0:tSat-1] = Neq[0:tSat -1,0:tSat-1] + Neq_tmp[0:tSat-1,0:tSat-1]
                 AtWb[0:tSat-1] = AtWb[0:tSat-1] + AtWb_tmp[0:tSat-1]
 
-                # Add in the station dependent models
-                start = tSat + nctr * numParamsPerSite 
-                end = tSat + (nctr+1) * numParamsPerSite
+                #===================================
+                # Loop over each model 
+                #===================================
+                for m in range(0,params[f]['numModels']) :
+                    # Add in the station dependent models
+                    start = tSat + nctr * numParamsPerSite 
+                    end = tSat + (nctr+1) * numParamsPerSite
 
-                AtWb[start:end] = AtWb[start:end] + AtWb_tmp[tSat:(tSat+numParamsPerSite)]
-                #print(np.shape(AtWb))
-                #   ------------------------------------------------
-                #  | SVN         | svn + site | svn + site2 | ....
-                #  | svn + site  | site       | 0           | ....
-                #  | svn + site2 | 0          | site2       | ....
-                #
+                    tmp_start = tSat + numParamsPerSite * m 
+                    tmp_end   = tSat + numParamsPerSite * m + numParamsPerSite
 
-                # Add in the site block 
-                Neq[start:end,start:end] = Neq[start:end,start:end]+ Neq_tmp[tSat:(tSat+numParamsPerSite),tSat:(tSat+numParamsPerSite)]
+                    AtWb[start:end] = AtWb[start:end] + AtWb_tmp[tSat:(tSat+numParamsPerSite)]
+                    #print(np.shape(AtWb))
+                    #   ------------------------------------------------
+                    #  | SVN         | svn + site | svn + site2 | ....
+                    #  | svn + site  | site       | 0           | ....
+                    #  | svn + site2 | 0          | site2       | ....
+                    #
 
-                # Adding in the correlation with the SVN and site
-                Neq[0:tSat-1,start:end] = Neq[0:tSat-1,start:end] + Neq_tmp[0:tSat-1,tSat:(tSat+numParamsPerSite)]
-                Neq[start:end,0:tSat-1] = Neq[start:end,0:tSat-1] + Neq_tmp[tSat:(tSat+numParamsPerSite),0:tSat-1]
-                Send = tSat+numParamsPerSite
-                #print("Neq_tmp:",np.shape(Neq_tmp),tSat,Send)
-                #print("Neq:",np.shape(Neq),end)
-                nctr += 1
+                    # Add in the site block 
+                    #Neq[start:end,start:end] = Neq[start:end,start:end]+ Neq_tmp[tSat:(tSat+numParamsPerSite),tSat:(tSat+numParamsPerSite)]
+                    Neq[start:end,start:end] = Neq[start:end,start:end] + Neq_tmp[tmp_start:tmp_end,tmp_start:tmp_end]
+
+                    # Adding in the correlation with the SVN and site
+                    #Neq[0:tSat-1,start:end] = Neq[0:tSat-1,start:end] + Neq_tmp[0:tSat-1,tSat:(tSat+numParamsPerSite)]
+                    Neq[0:tSat-1,start:end] = Neq[0:tSat-1,start:end] + Neq_tmp[0:tSat-1,tmp_start:tmp_end]
+                    #Neq[start:end,0:tSat-1] = Neq[start:end,0:tSat-1] + Neq_tmp[tSat:(tSat+numParamsPerSite),0:tSat-1]
+                    Neq[start:end,0:tSat-1] = Neq[start:end,0:tSat-1] + Neq_tmp[tmp_start:tmp_end,0:tSat-1]
+                    nctr += 1
 
             if args.save_file:
-                np.savez('consolidated.npz',neq=Neq,atwb=AtWb,svs=svs)
+                np.savez_compressed('consolidated.npz',neq=Neq,atwb=AtWb,svs=svs)
         
             #=====================================================================
             # End of if not load_file or not load_path
             #=====================================================================
             print("FINISHED MP processing, now need to workout stacking:...\n") 
-        if args.load_site:
-            sitefile = np.load(args.load_site)
-            S_Neq  = sitefile['neq']
-            S_AtWb = sitefile['atwb']
-            print("Neq:",np.shape(Neq),"AtWl:",np.shape(AtWb))
-            print("S_Neq:",np.shape(S_Neq),"S_AtWl:",np.shape(S_AtWb))
-            #AtWb = np.vstack((AtWb,S_AtWb))
-            AtWb = np.concatenate((AtWb,S_AtWb))
-            print("Neq:",np.shape(Neq),"AtWl:",np.shape(AtWb))
-            from scipy.linalg import block_diag
-            Neq = block_diag(Neq,S_Neq)
-            print("Neq:",np.shape(Neq),"AtWl:",np.shape(AtWb))
+        if args.load_file or args.load_path:
+            npzfiles = []
+
+            # Number of Parameters
+            numNADS = int(14.0/args.nadir_grid) + 1 
+            PCOEstimates = 1
+            numParamsPerSat = numNADS + PCOEstimates
+
+            if args.load_file:
+                npzfiles = np.append(args.load_file)
+            else:
+                npyRGX = re.compile('.npz')
+                for root, dirs, files in os.walk(args.load_path):
+                    path = root.split('/')
+                    for lfile in files:
+                        if npyRGX.search(lfile):
+                            print("Found:",args.load_path + "/" + lfile)
+                            npzfiles.append(args.load_path + "/"+ lfile)
+
+            npzfiles = np.sort(npzfiles)
+
+            # model counter
+            mctr = 0
+            meta = []
+            # first thing, work out how many models and parameters we will need to account for
+            for n in range(0,np.size(npzfiles)):
+                info = {}
+                npzfile = np.load(npzfiles[f])
+                AtWb = npzfile['atwb']
+                info['num_svs'] = np.size(npzfile['svs'])
+                tSat = numParamsPerSat * np.size(npzfile['svs']) 
+                info['numModels'] = np.size(AtWb) - tSat
+                mctr = mctr + info['numModels']
+                del AtWb, npzfile
+
+            print("Total number of site models to add to the Neq is:",mctr)
+
+            # Should do a quick loop through and check that all of the svs in each file
+            # are of the same dimension
+            numParamsPerSite = int(90./args.zen) + 1 
+            numSites = mctr # np.size(cl3files)
+            tSite = numParamsPerSite * numSites
+
+            #for n in range(0,np.size(npzfiles)):
+            #    npzfile = np.load(npzfiles[n])
+            #    Neq_tmp  = npzfile['neq']
+            #    AtWb_tmp = npzfile['atwb']
+            #    svs_tmp  = npzfile['svs']
+            #    if n == 0:
+            #        Neq = Neq_tmp
+            #        AtWb = AtWb_tmp
+            #        svs = np.sort(svs_tmp)
+            #    else:
+            #        Neq  = np.add(Neq,Neq_tmp)
+            #        AtWb = np.add(AtWb,AtWb_tmp)
+
+            #    nctr += 1
+            #if args.save_file:
+            #    np.savez_compressed('consolidated.npz',neq=Neq,atwb=AtWb,svs=svs)
+        
+        #if args.load_site:
+        #    sitefile = np.load(args.load_site)
+        #    S_Neq  = sitefile['neq']
+        #    S_AtWb = sitefile['atwb']
+        #    print("Neq:",np.shape(Neq),"AtWl:",np.shape(AtWb))
+        #    print("S_Neq:",np.shape(S_Neq),"S_AtWl:",np.shape(S_AtWb))
+        #    #AtWb = np.vstack((AtWb,S_AtWb))
+        #    AtWb = np.concatenate((AtWb,S_AtWb))
+        #    print("Neq:",np.shape(Neq),"AtWl:",np.shape(AtWb))
+        #    from scipy.linalg import block_diag
+        #    Neq = block_diag(Neq,S_Neq)
+        #    print("Neq:",np.shape(Neq),"AtWl:",np.shape(AtWb))
 
         if not args.save_file:
             print("Now trying an inverse")
