@@ -144,10 +144,21 @@ def pwlNadirSite(site_residuals, svs, params, nadSpacing=0.1,zenSpacing=0.5):
     PCOEstimates = 1
     numSVS = np.size(svs)
     numParamsPerSat = numNADS + PCOEstimates
-    numParamsPerSite = int(90.0/zenSpacing) + 1
-    numParams = numSVS * (numParamsPerSat) + numParamsPerSite*params['numModels']
+    tSat = numParamsPerSat * numSVS
 
-    print("\t Have:",numParams,"parameters to solve for",params['site'],params['numModels'])
+    numParamsPerSite = int(90.0/zenSpacing) + 1
+    tSite = numParamsPerSite*params['numModels']
+    #numParams = numSVS * (numParamsPerSat) + numParamsPerSite*params['numModels']
+    numParams = tSat + tSite 
+
+    print("\t Have:",numParams,"parameters to solve for",params['site'],"Number of Models:",params['numModels'])
+    print("Sat Params:----------------",numParamsPerSat)
+    print("Number of Sats:------------",np.size(svs))
+    print("Total satellite parameters:-------------",tSat)
+    print("Site Params:---------------",numParamsPerSite)
+    print("Number of Sites:-----------",params['numModels'])
+    print("Total Site Params:----------------------",tSite)
+    print("Total Params:---------------------------",numParams)
     Neq = np.zeros((numParams,numParams))
     AtWl = np.zeros(numParams)
     change = params['changes']
@@ -160,33 +171,32 @@ def pwlNadirSite(site_residuals, svs, params, nadSpacing=0.1,zenSpacing=0.5):
         minVal_dt = gt.ydhms2dt(change['start_yyyy'][m],change['start_ddd'][m],0,0,0)
 
         if np.size(change['stop_ddd']) > m  :
-            print("stop_ddd is in change")
-            maxVal_dt = gt.ydhms2dt(change['stop_yyyy'][m],change['stop_ddd'][m],0,0,0)
-
+            maxVal_dt = gt.ydhms2dt(change['stop_yyyy'][m],change['stop_ddd'][m],23,59,59)
+            print("Min:",minVal_dt,"Max:",maxVal_dt)
             criterion = ( ( site_residuals[:,0] >= calendar.timegm(minVal_dt.utctimetuple()) ) &
                     ( site_residuals[:,0] < calendar.timegm(maxVal_dt.utctimetuple()) ) )
         else:
             criterion = ( site_residuals[:,0] >= calendar.timegm(minVal_dt.utctimetuple()) ) 
 
         mind = np.array(np.where(criterion))[0]
-        print("MIND:",np.size(mind))
+        #print("MIND:",np.size(mind))
         #print("rejecting any residuals greater than 100mm",np.shape(site_residuals))
         tdata = res.reject_absVal(site_residuals[mind,0:],100.)
-        print("rejecting any residuals greater than 5 sigma",np.shape(tdata))
+        #print("rejecting any residuals greater than 5 sigma",np.shape(tdata))
         data = res.reject_outliers_elevation(tdata,5,0.5)
-        print("finished outlier detection",np.shape(data))
+        #print("finished outlier detection",np.shape(data))
         del tdata
 
         # Get the total number of observations for this site
         numd = np.shape(data)[0]
-        print("Have:",numd,"observations")
+        #print("Have:",numd,"observations")
         for i in range(0,numd):
             # work out the nadir angle
             nadir = calcNadirAngle(data[i,2])
             niz = int(np.floor(nadir/nadSpacing))
 
             nsiz = int(np.floor(data[i,2]/zenSpacing))
-            siz = int( numParamsPerSat*numSVS +  m*numParamsPerSite + nsiz)
+            siz = int( tSat +  m*numParamsPerSite + nsiz)
 
             # work out the svn number
             svndto =  gt.unix2dt(data[i,0])
@@ -200,9 +210,10 @@ def pwlNadirSite(site_residuals, svs, params, nadSpacing=0.1,zenSpacing=0.5):
                 ctr+=1
 
             w = 1.#np.sin(data[i,2]/180.*np.pi)
-            iz = int(numParamsPerSat * ctr + m * numParamsPerSite +niz)
-            pco_iz = int(numParamsPerSat *ctr + numParamsPerSat -1)
+            iz = int(numParamsPerSat * ctr + niz)
+            pco_iz = int(numParamsPerSat *ctr + numNads )
 
+            print("Indices m,iz,pco_iz,siz:",m,iz,pco_iz,siz)
             # Nadir partials..
             Apart_1 = (1.-(nadir-niz*nadSpacing)/nadSpacing)
             Apart_2 = (nadir-niz*nadSpacing)/nadSpacing
@@ -284,13 +295,11 @@ def setUpTasks(cl3files,svs,opts,params):
     for i in range(0,np.size(cl3files)) :
         print("Submitting job:",params[i]['site'])
         results.append(pool.apply_async(neqBySite,(params[i],svs,opts)))
-        #results.append(pool.apply_async(neqBySite,(cl3files[i],svs,opts)))
-        #results.append(pool.apply_async(neqBySite,(cl3files[i],svs,dt_start,dt_stop,opts)))
 
     # Wait for all of them to finish before moving on
     for r in results:
-        print("\t Waiting:",r.wait())
-        #r.wait()
+        #print("\t Waiting:",r.wait())
+        r.wait()
 
 
 #=====================================
