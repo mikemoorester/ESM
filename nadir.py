@@ -546,15 +546,6 @@ if __name__ == "__main__":
                 params[f]['npzfile'] = params[f]['filename']+'.npz'
                 nfile = params[f]['npzfile'] 
 
-            #npyRGX = re.compile('.npz')
-            #for root, dirs, files in os.walk(args.path):
-            #    path = root.split('/')
-            #    for lfile in files:
-            #        if npyRGX.search(lfile):
-            #            print("Found:",args.path + "/" + lfile)
-            #            npzfiles.append(args.path + "/"+ lfile)
-            # Start stacking the normal equations together
-            #for nfile in (npzfiles):
                 npzfile = np.load(nfile)
                 Neq_tmp  = npzfile['neq']
                 AtWb_tmp = npzfile['atwb']
@@ -606,13 +597,18 @@ if __name__ == "__main__":
             # End of if not load_file or not load_path
             #=====================================================================
             print("FINISHED MP processing, now need to workout stacking:...\n") 
+
         if args.load_file or args.load_path:
             npzfiles = []
-
+            print("In load path")
             # Number of Parameters
             numNADS = int(14.0/args.nadir_grid) + 1 
             PCOEstimates = 1
             numParamsPerSat = numNADS + PCOEstimates
+
+            # Should do a quick loop through and check that all of the svs in each file
+            # are of the same dimension
+            numParamsPerSite = int(90./args.zen) + 1 
 
             if args.load_file:
                 npzfiles = np.append(args.load_file)
@@ -633,59 +629,62 @@ if __name__ == "__main__":
             # first thing, work out how many models and parameters we will need to account for
             for n in range(0,np.size(npzfiles)):
                 info = {}
-                npzfile = np.load(npzfiles[f])
+                npzfile = np.load(npzfiles[n])
                 AtWb = npzfile['atwb']
                 info['num_svs'] = np.size(npzfile['svs'])
                 tSat = numParamsPerSat * np.size(npzfile['svs']) 
-                info['numModels'] = np.size(AtWb) - tSat
+                info['numModels'] = int((np.size(AtWb) - tSat)/numParamsPerSite)
                 mctr = mctr + info['numModels']
+                meta.append(info)
                 del AtWb, npzfile
 
             print("Total number of site models to add to the Neq is:",mctr)
 
-            # Should do a quick loop through and check that all of the svs in each file
-            # are of the same dimension
-            numParamsPerSite = int(90./args.zen) + 1 
-            numSites = mctr # np.size(cl3files)
+            numSites = int(mctr) 
             tSite = numParamsPerSite * numSites
+            numParams = tSat + tSite
 
-            #for n in range(0,np.size(npzfiles)):
-            #    npzfile = np.load(npzfiles[n])
-            #    Neq_tmp  = npzfile['neq']
-            #    AtWb_tmp = npzfile['atwb']
-            #    svs_tmp  = npzfile['svs']
-            #    if n == 0:
-            #        Neq = Neq_tmp
-            #        AtWb = AtWb_tmp
-            #        svs = np.sort(svs_tmp)
-            #    else:
-            #        Neq  = np.add(Neq,Neq_tmp)
-            #        AtWb = np.add(AtWb,AtWb_tmp)
+            Neq = np.zeros((numParams,numParams))
+            AtWb = np.zeros(numParams)
 
-            #    nctr += 1
-            #if args.save_file:
-            #    np.savez_compressed('consolidated.npz',neq=Neq,atwb=AtWb,svs=svs)
+            mdlCtr = 0
+            for n in range(0,np.size(npzfiles)):
+                npzfile = np.load(npzfiles[n])
+                Neq_tmp  = npzfile['neq']
+                AtWb_tmp = npzfile['atwb']
+                svs_tmp  = npzfile['svs']
+                if n == 0:
+                    svs = np.sort(svs_tmp)
+
+                # Add the svn component to the Neq
+                Neq[0:tSat-1,0:tSat-1] = Neq[0:tSat -1,0:tSat-1] + Neq_tmp[0:tSat-1,0:tSat-1]
+                AtWb[0:tSat-1] = AtWb[0:tSat-1] + AtWb_tmp[0:tSat-1]
+
+                for m in range(0,meta[n]['numModels']) :
+                    # Add in the station dependent models
+                    start = tSat + mdlCtr * numParamsPerSite 
+                    end = tSat + (mdlCtr+1) * numParamsPerSite
+
+                    tmp_start = tSat + numParamsPerSite * m 
+                    tmp_end   = tSat + numParamsPerSite * m + numParamsPerSite
+
+                    AtWb[start:end] = AtWb[start:end] + AtWb_tmp[tSat:(tSat+numParamsPerSite)]
+                    Neq[start:end,start:end] = Neq[start:end,start:end] + Neq_tmp[tmp_start:tmp_end,tmp_start:tmp_end]
+
+                    # Adding in the correlation with the SVN and site
+                    Neq[0:tSat-1,start:end] = Neq[0:tSat-1,start:end] + Neq_tmp[0:tSat-1,tmp_start:tmp_end]
+                    mdlCtr = mdlCtr + 1
+
+        if args.save_file:
+            np.savez_compressed('consolidated.npz',neq=Neq,atwb=AtWb,svs=svs)
         
-        #if args.load_site:
-        #    sitefile = np.load(args.load_site)
-        #    S_Neq  = sitefile['neq']
-        #    S_AtWb = sitefile['atwb']
-        #    print("Neq:",np.shape(Neq),"AtWl:",np.shape(AtWb))
-        #    print("S_Neq:",np.shape(S_Neq),"S_AtWl:",np.shape(S_AtWb))
-        #    #AtWb = np.vstack((AtWb,S_AtWb))
-        #    AtWb = np.concatenate((AtWb,S_AtWb))
-        #    print("Neq:",np.shape(Neq),"AtWl:",np.shape(AtWb))
-        #    from scipy.linalg import block_diag
-        #    Neq = block_diag(Neq,S_Neq)
-        #    print("Neq:",np.shape(Neq),"AtWl:",np.shape(AtWb))
-
-        if not args.save_file:
-            print("Now trying an inverse")
-            Cov = np.linalg.pinv(Neq)
+    if not args.save_file:
+        print("Now trying an inverse")
+        Cov = np.linalg.pinv(Neq)
         
-            print("Now computing the solution")
-            Sol = np.dot(Cov,AtWb)
-            print("The solution is :",np.shape(Sol))
+        print("Now computing the solution")
+        Sol = np.dot(Cov,AtWb)
+        print("The solution is :",np.shape(Sol))
 
             #f = loglikelihood(np.array(meas_complete),np.array(model_complete))
             #numd = np.size(meas_complete)
@@ -698,58 +697,28 @@ if __name__ == "__main__":
             #print("My loglikelihood:",f,aic,bic,dof,numd)
             #print("STATS:",numd,np.sqrt(prechi/numd),np.sqrt(postchi/numd),np.sqrt((prechi-postchi)/numd),aic,bic)
             #print("MaX PCO:",max_pco_iz)
-        if args.plotNadir:
-            nad = np.linspace(0,14, int(14./args.nadir_grid)+1 )
-            numParamsPerSat = int(14.0/args.nadir_grid) + 2 
+    if args.plotNadir:
+        nad = np.linspace(0,14, int(14./args.nadir_grid)+1 )
+        numParamsPerSat = int(14.0/args.nadir_grid) + 2 
 
-            variances = np.diag(Neq)
-            print("Variance:",np.shape(variances))
-            del Neq, AtWb
+        variances = np.diag(Neq)
+        print("Variance:",np.shape(variances))
+        del Neq, AtWb
 
-            ctr = 0
-            for svn in svs:
-                fig = plt.figure(figsize=(3.62, 2.76))
-                fig.canvas.set_window_title("SVN_"+svn+"_nadirCorrectionModel.png")
-                ax = fig.add_subplot(111)
-
-                siz = numParamsPerSat * ctr 
-                eiz = numParamsPerSat *ctr + numNADS 
-                print("SVN:",svn,siz,eiz,numParamsPerSat,tSat)
-                #ax.plot(nad,Sol[siz:eiz],'r-',linewidth=2)
-                ax.errorbar(nad,Sol[siz:eiz],yerr=np.sqrt(variances[siz:eiz])/2.,fmt='o')
-
-                ax.set_xlabel('Nadir Angle (degrees)',fontsize=8)
-                ax.set_ylabel('Phase Residuals (mm)',fontsize=8)
-                #ax.set_xlim([0, 14])
-
-                for item in ([ax.title, ax.xaxis.label, ax.yaxis.label] +
-                           ax.get_xticklabels() + ax.get_yticklabels()):
-                    item.set_fontsize(8)
-
-                plt.tight_layout()
-                ctr += 1
-                
-                if ctr > 10:
-                    break
-
-            #==================================================
+        ctr = 0
+        for svn in svs:
             fig = plt.figure(figsize=(3.62, 2.76))
-            fig.canvas.set_window_title("PCO_correction.png")
+            fig.canvas.set_window_title("SVN_"+svn+"_nadirCorrectionModel.png")
             ax = fig.add_subplot(111)
-            ctr = 0
-            numSVS = np.size(svs)
-            numNADS = int(14.0/args.nadir_grid) + 1 
-            numParamsPerSat = numNADS + PCOEstimates
-            print("Number of Params per Sat:",numParamsPerSat,"numNads",numNADS,"Sol",np.shape(Sol))
-            for svn in svs:
-                eiz = numParamsPerSat *ctr + numParamsPerSat -1 
-                #print(ctr,"PCO:",eiz)
-                ax.plot(ctr,Sol[eiz],'k.',linewidth=2)
-                #ax.errorbar(ctr,Sol[eiz],yerr=np.sqrt(variances[eiz])/2.,fmt='o')
-                ctr += 1
 
-            ax.set_xlabel('SVN',fontsize=8)
-            ax.set_ylabel('Adjustment to PCO (mm)',fontsize=8)
+            siz = numParamsPerSat * ctr 
+            eiz = numParamsPerSat *ctr + numNADS 
+            print("SVN:",svn,siz,eiz,numParamsPerSat,tSat)
+            #ax.plot(nad,Sol[siz:eiz],'r-',linewidth=2)
+            ax.errorbar(nad,Sol[siz:eiz],yerr=np.sqrt(variances[siz:eiz])/2.,fmt='o')
+
+            ax.set_xlabel('Nadir Angle (degrees)',fontsize=8)
+            ax.set_ylabel('Phase Residuals (mm)',fontsize=8)
             #ax.set_xlim([0, 14])
 
             for item in ([ax.title, ax.xaxis.label, ax.yaxis.label] +
@@ -757,36 +726,66 @@ if __name__ == "__main__":
                 item.set_fontsize(8)
 
             plt.tight_layout()
+            ctr += 1
+                
+            if ctr > 10:
+                break
 
-            #==================================================
-            if args.model == 'pwlSite':
-                ctr = 0
-                numSVS = np.size(svs)
-                numNADS = int(14.0/args.nadir_grid) + 1 
-                numParamsPerSat = numNADS + PCOEstimates
-                print("Number of Params per Sat:",numParamsPerSat,"numNads",numNADS,"Sol",np.shape(Sol))
-                numParams = numSVS * (numParamsPerSat) + numParamsPerSite * totalSites 
-                for snum in range(0,totalSites):
-                    fig = plt.figure(figsize=(3.62, 2.76))
-                    fig.canvas.set_window_title(cl3files[snum]+"_elevation_model.png")
-                    ax = fig.add_subplot(111)
-                    siz = numParamsPerSat*numSVS + snum * numParamsPerSite 
-                    eiz = siz + numParamsPerSite 
-                    ele = np.linspace(0,90,numParamsPerSite)
-                    print("Sol",np.shape(Sol),"siz  ",siz,eiz)
-                    #ax.plot(ele,Sol[siz:eiz],'k.',linewidth=2)
-                    ax.errorbar(ele,Sol[siz:eiz],yerr=np.sqrt(variances[siz:eiz])/2.,fmt='o')
+        #==================================================
+        fig = plt.figure(figsize=(3.62, 2.76))
+        fig.canvas.set_window_title("PCO_correction.png")
+        ax = fig.add_subplot(111)
+        ctr = 0
+        numSVS = np.size(svs)
+        numNADS = int(14.0/args.nadir_grid) + 1 
+        numParamsPerSat = numNADS + PCOEstimates
+        print("Number of Params per Sat:",numParamsPerSat,"numNads",numNADS,"Sol",np.shape(Sol))
+        for svn in svs:
+            eiz = numParamsPerSat *ctr + numParamsPerSat -1 
+            #print(ctr,"PCO:",eiz)
+            ax.plot(ctr,Sol[eiz],'k.',linewidth=2)
+            #ax.errorbar(ctr,Sol[eiz],yerr=np.sqrt(variances[eiz])/2.,fmt='o')
+            ctr += 1
 
-                    ax.set_xlabel('Elevation Angle',fontsize=8)
-                    ax.set_ylabel('Adjustment to PCO (mm)',fontsize=8)
-                    #ax.set_xlim([0, 14])
+        ax.set_xlabel('SVN',fontsize=8)
+        ax.set_ylabel('Adjustment to PCO (mm)',fontsize=8)
+        #ax.set_xlim([0, 14])
 
-                    for item in ([ax.title, ax.xaxis.label, ax.yaxis.label] +
-                        ax.get_xticklabels() + ax.get_yticklabels()):
-                        item.set_fontsize(8)
+        for item in ([ax.title, ax.xaxis.label, ax.yaxis.label] +
+                   ax.get_xticklabels() + ax.get_yticklabels()):
+            item.set_fontsize(8)
 
-                    plt.tight_layout()
+        plt.tight_layout()
 
-            plt.show()
+        #==================================================
+        if args.model == 'pwlSite':
+            ctr = 0
+            numSVS = np.size(svs)
+            numNADS = int(14.0/args.nadir_grid) + 1 
+            numParamsPerSat = numNADS + PCOEstimates
+            print("Number of Params per Sat:",numParamsPerSat,"numNads",numNADS,"Sol",np.shape(Sol))
+            numParams = numSVS * (numParamsPerSat) + numParamsPerSite * totalSites 
+            for snum in range(0,totalSites):
+                fig = plt.figure(figsize=(3.62, 2.76))
+                #fig.canvas.set_window_title(cl3files[snum]+"_elevation_model.png")
+                ax = fig.add_subplot(111)
+                siz = numParamsPerSat*numSVS + snum * numParamsPerSite 
+                eiz = siz + numParamsPerSite 
+                ele = np.linspace(0,90,numParamsPerSite)
+                print("Sol",np.shape(Sol),"siz  ",siz,eiz)
+                #ax.plot(ele,Sol[siz:eiz],'k.',linewidth=2)
+                ax.errorbar(ele,Sol[siz:eiz],yerr=np.sqrt(variances[siz:eiz])/2.,fmt='o')
+
+                ax.set_xlabel('Elevation Angle',fontsize=8)
+                ax.set_ylabel('Adjustment to PCO (mm)',fontsize=8)
+                #ax.set_xlim([0, 14])
+
+                for item in ([ax.title, ax.xaxis.label, ax.yaxis.label] +
+                    ax.get_xticklabels() + ax.get_yticklabels()):
+                    item.set_fontsize(8)
+
+                plt.tight_layout()
+
+        plt.show()
 
     print("FINISHED")
