@@ -159,7 +159,7 @@ def pwlNadirSite(site_residuals, svs, params, nadSpacing=0.1,zenSpacing=0.5):
     print("Number of Sats:------------",np.size(svs))
     print("Total satellite parameters:-------------",tSat)
     print("Site Params:---------------",numParamsPerSite)
-    print("Number of Sites:-----------",params['numModels'])
+    print("Number of Models:----------",params['numModels'])
     print("Total Site Params:----------------------",tSite)
     print("------------------------------------------------")
     print("Total Params:---------------------------",numParams)
@@ -348,7 +348,7 @@ if __name__ == "__main__":
     parser.add_argument('--sv','--svnav', dest="svnavFile",default="~/gg/tables/svnav.dat", help="Location of GAMIT svnav.dat")
     parser.add_argument('--sf','--station_file', dest="station_file",default="~/gg/tables/station.info", help="Location of GAMIT station.info")
 
-    
+    parser.add_argument('--parse_only',dest='parse_only',action='store_true',default=False,help="parse the cl3 file and save the normal equations to a file (*.npz)") 
     parser.add_argument('--nadir_grid', dest='nadir_grid', default=0.1, type=float,help="Grid spacing to model NADIR corrections (default = 0.1 degrees)")
     parser.add_argument('--zenith_grid', dest='zen', default=0.5, type=float,help="Grid spacing to model Site corrections (default = 0.5 degrees)")
     parser.add_argument('-f', dest='resfile', default='',help="Consolidated one-way LC phase residuals")
@@ -385,6 +385,8 @@ if __name__ == "__main__":
     cl3files = []
     npzfiles = []
     totalSites = 1
+    totalSiteModels = 0
+    siteIDList = []
 
     if args.model: 
         #===================================================================
@@ -393,9 +395,10 @@ if __name__ == "__main__":
 
         if args.resfile :
             cl3files.append(args.resfile)
+            siteIDList.append(os.path.basename(args.resfile)[0:4])
         elif args.path:
             print("Checking {:s} for CL3 files".format(args.path))
-            phsRGX = re.compile('.CL3')
+            phsRGX = re.compile('.CL3$')
             for root, dirs, files in os.walk(args.path):
                 path = root.split('/')
                 for lfile in files:
@@ -454,6 +457,8 @@ if __name__ == "__main__":
             multiprocessing.freeze_support()
             setUpTasks(cl3files,svs,args,params)
 
+            if args.parse_only:
+                sys.exit(0)
             #=====================================================================
             # add one to make sure we have a linspace which includes 0.0 and 14.0
             # add another parameter for the zenith PCO estimate
@@ -478,57 +483,8 @@ if __name__ == "__main__":
             print("Total site parameters     :",tSite)
             print("\t Have:",numParams,"parameters to solve for")
 
-            #========================================================================
-            # Adding Constraints to the satellite parameters,
-            # keep the site model free ~ 10mm  0.01 => 1/sqrt(0.01) = 10 (mm)
-            # Adding 1 mm constraint to satellites
-            #========================================================================
-            sPCV_constraint = 0.1
-            #sPCV_constraint = 0.01
-            sPCV_window = 1.0     # assume the PCV variation is correlated at this degree level
-            site_constraint = 10.0
-            site_window = 1.5
-
-            C = np.eye(numParams,dtype=float) * sPCV_constraint
-            if args.model == 'pwlSite' :
-                for sitr in range(0,tSite):
-                    spar = tSat + sitr
-                    C[spar,spar] = site_constraint 
-
-                # Now add in the off digonal commponents
-                sPCV_corr = np.linspace(sPCV_constraint, 0., int(sPCV_window/args.nadir_grid))
-                site_corr = np.linspace(site_constraint, 0., int(site_window/args.zen))
-
-                # Add in the correlation constraints for the satellite PCVs
-                for s in range(0,numSVS):
-                    for ind in range(0,numNADS ):
-                        start = (s * numParamsPerSat) + ind
-                        if ind > (numNADS - np.size(sPCV_corr)):
-                            end = start + (numNADS - ind) 
-                        else:
-                            end = start + np.size(sPCV_corr)
-                        
-                        C[start,start:end] = sPCV_corr[0:(end - start)] 
-                        C[start:end,start] = sPCV_corr[0:(end - start)] 
-
-                for s in range(0,numSites):
-                    for ind in range(0,numParamsPerSite-np.size(site_corr) ):
-                        start = tSat + (s * numParamsPerSite) + ind
-                        if ind > (numParamsPerSite - np.size(site_corr)):
-                            end = start + (numParamsPerSite - ind) 
-                        else:
-                            end = start + np.size(site_corr)
-                        
-                        C[start,start:end] = site_corr[0:(end - start)] 
-                        C[start:end,start] = site_corr[0:(end - start)] 
-
-            C_inv = np.linalg.inv(C)
-            del C
-
             Neq = np.zeros((numParams,numParams))
             AtWb = np.zeros(numParams)
-
-            Neq = np.add(Neq,C_inv)
 
             #print("Will have to solve for ",np.size(svs),"sats",svs)
             #print("\t Creating a PWL linear model for Nadir satelites for SVS:\n")
@@ -580,15 +536,14 @@ if __name__ == "__main__":
                     #
 
                     # Add in the site block 
-                    #Neq[start:end,start:end] = Neq[start:end,start:end]+ Neq_tmp[tSat:(tSat+numParamsPerSite),tSat:(tSat+numParamsPerSite)]
                     Neq[start:end,start:end] = Neq[start:end,start:end] + Neq_tmp[tmp_start:tmp_end,tmp_start:tmp_end]
 
                     # Adding in the correlation with the SVN and site
-                    #Neq[0:tSat-1,start:end] = Neq[0:tSat-1,start:end] + Neq_tmp[0:tSat-1,tSat:(tSat+numParamsPerSite)]
                     Neq[0:tSat-1,start:end] = Neq[0:tSat-1,start:end] + Neq_tmp[0:tSat-1,tmp_start:tmp_end]
-                    #Neq[start:end,0:tSat-1] = Neq[start:end,0:tSat-1] + Neq_tmp[tSat:(tSat+numParamsPerSite),0:tSat-1]
                     Neq[start:end,0:tSat-1] = Neq[start:end,0:tSat-1] + Neq_tmp[tmp_start:tmp_end,0:tSat-1]
                     nctr += 1
+                    totalSiteModels = totalSiteModels + 1
+                    siteIDList.append(params[f]['site'])
 
             if args.save_file:
                 np.savez_compressed('consolidated.npz',neq=Neq,atwb=AtWb,svs=svs)
@@ -600,7 +555,6 @@ if __name__ == "__main__":
 
         if args.load_file or args.load_path:
             npzfiles = []
-            print("In load path")
             # Number of Parameters
             numNADS = int(14.0/args.nadir_grid) + 1 
             PCOEstimates = 1
@@ -626,9 +580,15 @@ if __name__ == "__main__":
             # model counter
             mctr = 0
             meta = []
+
+            #=====================================================================
             # first thing, work out how many models and parameters we will need to account for
             for n in range(0,np.size(npzfiles)):
                 info = {}
+                filename = os.path.basename(npzfiles[n])
+                info['basename'] = filename
+                info['site'] = filename[0:4]
+
                 npzfile = np.load(npzfiles[n])
                 AtWb = npzfile['atwb']
                 info['num_svs'] = np.size(npzfile['svs'])
@@ -636,14 +596,18 @@ if __name__ == "__main__":
                 info['numModels'] = int((np.size(AtWb) - tSat)/numParamsPerSite)
                 mctr = mctr + info['numModels']
                 meta.append(info)
+
+                for s in range(0,info['numModels']):
+                    siteIDList.append(info['site'])
                 del AtWb, npzfile
 
-            print("Total number of site models to add to the Neq is:",mctr)
-
+            totalSiteModels = mctr
+            numSVS = meta[0]['num_svs']
             numSites = int(mctr) 
             tSite = numParamsPerSite * numSites
             numParams = tSat + tSite
 
+            print("Total number of site models :",mctr, "Total number of paramters to solve for:",numParams)
             Neq = np.zeros((numParams,numParams))
             AtWb = np.zeros(numParams)
 
@@ -679,6 +643,56 @@ if __name__ == "__main__":
             np.savez_compressed('consolidated.npz',neq=Neq,atwb=AtWb,svs=svs)
         
     if not args.save_file:
+        #========================================================================
+        # Adding Constraints to the satellite parameters,
+        # keep the site model free ~ 10mm  0.01 => 1/sqrt(0.01) = 10 (mm)
+        # Adding 1 mm constraint to satellites
+        #========================================================================
+        #sPCV_constraint = 0.1
+        sPCV_constraint = 0.01
+        sPCV_window = 1.0     # assume the PCV variation is correlated at this degree level
+        site_constraint = 10.0
+        site_window = 1.5
+
+        C = np.eye(numParams,dtype=float) * sPCV_constraint
+        if args.model == 'pwlSite' :
+            for sitr in range(0,tSite):
+                spar = tSat + sitr
+                C[spar,spar] = site_constraint 
+
+            # Now add in the off digonal commponents
+            sPCV_corr = np.linspace(sPCV_constraint, 0., int(sPCV_window/args.nadir_grid))
+            site_corr = np.linspace(site_constraint, 0., int(site_window/args.zen))
+
+            # Add in the correlation constraints for the satellite PCVs
+            for s in range(0,numSVS):
+                for ind in range(0,numNADS ):
+                    start = (s * numParamsPerSat) + ind
+                    if ind > (numNADS - np.size(sPCV_corr)):
+                        end = start + (numNADS - ind) 
+                    else:
+                        end = start + np.size(sPCV_corr)
+                        
+                    C[start,start:end] = sPCV_corr[0:(end - start)] 
+                    C[start:end,start] = sPCV_corr[0:(end - start)] 
+
+            for s in range(0,numSites):
+                for ind in range(0,numParamsPerSite-np.size(site_corr) ):
+                    start = tSat + (s * numParamsPerSite) + ind
+                    if ind > (numParamsPerSite - np.size(site_corr)):
+                        end = start + (numParamsPerSite - ind) 
+                    else:
+                        end = start + np.size(site_corr)
+                        
+                    C[start,start:end] = site_corr[0:(end - start)] 
+                    C[start:end,start] = site_corr[0:(end - start)] 
+
+        C_inv = np.linalg.inv(C)
+        del C
+        
+        # Add the parameter constraints to the Neq
+        Neq = np.add(Neq,C_inv)
+
         print("Now trying an inverse")
         Cov = np.linalg.pinv(Neq)
         
@@ -763,11 +777,12 @@ if __name__ == "__main__":
             numSVS = np.size(svs)
             numNADS = int(14.0/args.nadir_grid) + 1 
             numParamsPerSat = numNADS + PCOEstimates
-            print("Number of Params per Sat:",numParamsPerSat,"numNads",numNADS,"Sol",np.shape(Sol))
-            numParams = numSVS * (numParamsPerSat) + numParamsPerSite * totalSites 
-            for snum in range(0,totalSites):
+            print("Number of Params per Sat:",numParamsPerSat,"numNads",numNADS,"Sol",np.shape(Sol),"TotalSites:",totalSiteModels)
+            numParams = numSVS * (numParamsPerSat) + numParamsPerSite * totalSiteModels 
+            #meta[snum]['site']
+            for snum in range(0,totalSiteModels):
                 fig = plt.figure(figsize=(3.62, 2.76))
-                #fig.canvas.set_window_title(cl3files[snum]+"_elevation_model.png")
+                fig.canvas.set_window_title(siteIDList[snum]+"_elevation_model.png")
                 ax = fig.add_subplot(111)
                 siz = numParamsPerSat*numSVS + snum * numParamsPerSite 
                 eiz = siz + numParamsPerSite 
