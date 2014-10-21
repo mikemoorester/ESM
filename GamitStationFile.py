@@ -95,11 +95,11 @@ def determineESMChanges(start,end,sdata):
             change['stop_yyyy'].append(sdata['start_yyyy'][i])
             change['stop_ddd'].append(sdata['start_ddd'][i])
 
-        change['stop_yyyy'].append(end.strftime("%Y"))
-        change['stop_ddd'].append(end.strftime("%j"))
+    change['stop_yyyy'].append(end.strftime("%Y"))
+    change['stop_ddd'].append(end.strftime("%j"))
 
-        models = np.zeros((np.size(change['ind'])+1,int(360./0.5)+1,int(90/0.5)+1,2))
-        num_models = np.size(change['ind'])+1
+    models = np.zeros((np.size(change['ind'])+1,int(360./0.5)+1,int(90/0.5)+1,2))
+    num_models = np.size(change['ind'])+1
     return change
 
 def antennaChange(data): #,start_yyyy,start_ddd,end_yyyy,end_ddd):

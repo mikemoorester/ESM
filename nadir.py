@@ -179,14 +179,13 @@ def pwlNadirSite(site_residuals, svs, params, nadSpacing=0.1,zenSpacing=0.5):
 
         if np.size(change['stop_ddd']) > m  :
             maxVal_dt = gt.ydhms2dt(change['stop_yyyy'][m],change['stop_ddd'][m],23,59,59)
-            print("Min:",minVal_dt,"Max:",maxVal_dt)
+            print("Min:",minVal_dt,"Max:",maxVal_dt,m,np.size(change['stop_ddd']))
             criterion = ( ( site_residuals[:,0] >= calendar.timegm(minVal_dt.utctimetuple()) ) &
                     ( site_residuals[:,0] < calendar.timegm(maxVal_dt.utctimetuple()) ) )
         else:
             criterion = ( site_residuals[:,0] >= calendar.timegm(minVal_dt.utctimetuple()) ) 
 
         mind = np.array(np.where(criterion))[0]
-        #print("MIND:",np.size(mind))
         #print("rejecting any residuals greater than 100mm",np.shape(site_residuals))
         tdata = res.reject_absVal(site_residuals[mind,:],100.)
         if m >= (int(params['numModels']) -1 ):
@@ -207,7 +206,7 @@ def pwlNadirSite(site_residuals, svs, params, nadSpacing=0.1,zenSpacing=0.5):
 
             nsiz = int(np.floor(data[i,2]/zenSpacing))
             siz = int( tSat +  m*numParamsPerSite + nsiz)
-            #print("Site obs bin indicies (data,zenspacing, nsiz,siz)",data[i,2],zenSpacing,nsiz,tSat,siz,tSite)
+
             # work out the svn number
             svndto =  gt.unix2dt(data[i,0])
             svn = svnav.findSV_DTO(svdat,data[i,4],svndto)
@@ -275,9 +274,9 @@ def pwlNadirSite(site_residuals, svs, params, nadSpacing=0.1,zenSpacing=0.5):
             Neq[siz+1,siz+1]  = Neq[siz+1,siz+1]  + Apart_5 * Apart_5 * 1./w**2
             #print("Finished NEQ Site estimates")
 
-    print("Normal finish of pwlNadirSite")
-
-    return Neq, AtWb
+    prechi = np.dot(data[:,3].T,data[:,3])
+    print("Normal finish of pwlNadirSite",prechi,numd)
+    return Neq, AtWb, prechi, numd
 
 def neqBySite(params,svs,args):
     print("\t Reading in file:",params['filename'])
@@ -286,24 +285,25 @@ def neqBySite(params,svs,args):
     if args.model == 'pwl':
         Neq_tmp,AtWb_tmp = pwl(site_residuals,svs,args.nadir_grid)
     elif args.model == 'pwlSite':
-        Neq_tmp,AtWb_tmp = pwlNadirSite(site_residuals,svs,params,args.nadir_grid,0.5)
+        Neq_tmp,AtWb_tmp,prechi_tmp,numd_tmp = pwlNadirSite(site_residuals,svs,params,args.nadir_grid,0.5)
 
     print("Returned Neq, AtWb:",np.shape(Neq_tmp),np.shape(AtWb_tmp))
             
     sf = params['filename']+".npz"
-    np.savez_compressed(sf,neq=Neq_tmp,atwb=AtWb_tmp,svs=svs)
+    np.savez_compressed(sf,neq=Neq_tmp,atwb=AtWb_tmp,svs=svs,prechi=prechi,numd=numd)
 
-    return sf 
+    return prechi_tmp, numd_tmp 
 
-#def setUpTasks(cl3files,svs,dt_start,dt_stop,opts):
 def setUpTasks(cl3files,svs,opts,params):
+    prechi = 0
+    numd = 0
     print('cpu_count() = {:d}\n'.format(multiprocessing.cpu_count()))
     NUMBER_OF_PROCESSES = multiprocessing.cpu_count()
 
     if opts.cpu < NUMBER_OF_PROCESSES:
         NUMBER_OF_PROCESSES = int(opts.cpu)
 
-    print("Creating a pool of {:d} processes".format(NUMBER_OF_PROCESSES))
+    #print("Creating a pool of {:d} processes".format(NUMBER_OF_PROCESSES))
 
     pool = multiprocessing.Pool(NUMBER_OF_PROCESSES)
     #print("pool = {:s}".format(pool))
@@ -317,7 +317,13 @@ def setUpTasks(cl3files,svs,opts,params):
     for r in results:
         #print("\t Waiting:",r.wait())
         r.wait()
+        prechi_tmp, numd_tmp = r.get()
+        prechi = prechi + prechi_tmp
+        numd   = numd + numd_tmp
+        print("RGET:", prechi,numd)
 
+    return prechi,numd
+   
 
 #=====================================
 #
@@ -352,6 +358,8 @@ if __name__ == "__main__":
     parser.add_argument('--nadir_grid', dest='nadir_grid', default=0.1, type=float,help="Grid spacing to model NADIR corrections (default = 0.1 degrees)")
     parser.add_argument('--zenith_grid', dest='zen', default=0.5, type=float,help="Grid spacing to model Site corrections (default = 0.5 degrees)")
     parser.add_argument('-f', dest='resfile', default='',help="Consolidated one-way LC phase residuals")
+    parser.add_argument('--conf', dest='config_file', default='',help="Get options from a configuration file")
+
     parser.add_argument('-p','--path',dest='path',help="Search for all CL3 files in the directory path") 
 
     parser.add_argument('-m','--model',dest='model',choices=['pwl','pwlSite','placeHolder'], help="Create a ESM for satellites only, or for satellites and sites")
@@ -387,6 +395,9 @@ if __name__ == "__main__":
     totalSites = 1
     totalSiteModels = 0
     siteIDList = []
+
+    prechi = 0
+    numd = 0
 
     if args.model: 
         #===================================================================
@@ -455,8 +466,8 @@ if __name__ == "__main__":
 
             # Read in the residual files and create the normal equations
             multiprocessing.freeze_support()
-            setUpTasks(cl3files,svs,args,params)
-
+            prechi, numd = setUpTasks(cl3files,svs,args,params)
+            print("Prechi",prechi,np.sqrt(prechi/numd))
             if args.parse_only:
                 sys.exit(0)
             #=====================================================================
@@ -528,7 +539,7 @@ if __name__ == "__main__":
                     tmp_end   = tSat + numParamsPerSite * m + numParamsPerSite
 
                     AtWb[start:end] = AtWb[start:end] + AtWb_tmp[tSat:(tSat+numParamsPerSite)]
-                    #print(np.shape(AtWb))
+                    #
                     #   ------------------------------------------------
                     #  | SVN         | svn + site | svn + site2 | ....
                     #  | svn + site  | site       | 0           | ....
@@ -580,7 +591,8 @@ if __name__ == "__main__":
             # model counter
             mctr = 0
             meta = []
-
+            prechi = 0
+            numd = 0
             #=====================================================================
             # first thing, work out how many models and parameters we will need to account for
             for n in range(0,np.size(npzfiles)):
@@ -596,6 +608,9 @@ if __name__ == "__main__":
                 info['numModels'] = int((np.size(AtWb) - tSat)/numParamsPerSite)
                 mctr = mctr + info['numModels']
                 meta.append(info)
+                
+                prechi = prechi + npzfile['prechi']
+                numd = numd + npzfile['numd']
 
                 for s in range(0,info['numModels']):
                     siteIDList.append(info['site'])
@@ -705,9 +720,10 @@ if __name__ == "__main__":
             #dof = numd - np.shape(Sol_complete)[0]
             #aic = calcAIC(f,dof)
             #bic = calcBIC(f,dof,numd)
-            #prechi = np.dot(data[:,3].T,data[:,3])
             #prechi = np.dot(np.array(meas_complete).T,np.array(meas_complete))
-            #postchi = prechi - np.dot(np.array(Bvec_complete).T,np.array(Sol_complete))
+        postchi = prechi - np.dot(np.array(AtWb).T,np.array(Sol))
+        print("STATS:",numd,np.sqrt(prechi/numd),np.sqrt(postchi/numd),np.sqrt((prechi-postchi)/numd))#,aic,bic)
+
             #print("My loglikelihood:",f,aic,bic,dof,numd)
             #print("STATS:",numd,np.sqrt(prechi/numd),np.sqrt(postchi/numd),np.sqrt((prechi-postchi)/numd),aic,bic)
             #print("MaX PCO:",max_pco_iz)
@@ -779,7 +795,6 @@ if __name__ == "__main__":
             numParamsPerSat = numNADS + PCOEstimates
             print("Number of Params per Sat:",numParamsPerSat,"numNads",numNADS,"Sol",np.shape(Sol),"TotalSites:",totalSiteModels)
             numParams = numSVS * (numParamsPerSat) + numParamsPerSite * totalSiteModels 
-            #meta[snum]['site']
             for snum in range(0,totalSiteModels):
                 fig = plt.figure(figsize=(3.62, 2.76))
                 fig.canvas.set_window_title(siteIDList[snum]+"_elevation_model.png")
