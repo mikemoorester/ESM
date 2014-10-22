@@ -1218,6 +1218,7 @@ if __name__ == "__main__":
             for sv in nadirData:
                 blk = svnav.findBLK_SV(svdat,sv)
                 axBLK[int(blk)-1].plot(nadir,nadirData[sv],'-',alpha=0.7,linewidth=1,label="SV "+str(sv))
+
             # tidy each plot up
             for i in range(0,7):
                 axBLK[i].set_xlabel('Nadir Angle (degrees)',fontsize=8)
@@ -1230,7 +1231,8 @@ if __name__ == "__main__":
                 for item in ([axBLK[i].title, axBLK[i].xaxis.label, axBLK[i].yaxis.label] +
                     axBLK[i].get_xticklabels() + axBLK[i].get_yticklabels()):
                     item.set_fontsize(8)
-                
+                #axBLK[i].tight_layout() 
+                plt.tight_layout()
                 
             # Do a plot of all the satellites now..
             fig = plt.figure(figsize=(3.62, 2.76))

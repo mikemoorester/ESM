@@ -1,29 +1,19 @@
 #!/usr/bin/env python
 from __future__ import division, print_function, absolute_import
 
-import matplotlib.pyplot as plt
-#from matplotlib import cm
 
 import numpy as np
 import re
-#import gzip
 import calendar
 import os, sys
 import datetime as dt
 
-#from scipy import interpolate
-#from scipy.stats.stats import nanmean, nanmedian, nanstd
-#from scipy import sparse
-#from scipy import stats
-
-#from multiprocessing import Process, Queue, current_process, freeze_support
 import multiprocessing
 
 import antenna as ant
 import residuals as res
 import gpsTime as gt
 import GamitStationFile as gsf
-#import time
 import svnav
 
 
@@ -92,7 +82,6 @@ def pwl(site_residuals, svs, nadSpacing=0.1,):
         ctr = 0
         for sv in svs:
             if sv == svn_search:
-                #ind = ctr
                 break
             ctr+=1
 
@@ -213,11 +202,10 @@ def pwlNadirSite(site_residuals, svs, params, nadSpacing=0.1,zenSpacing=0.5):
             ctr = 0
             for sv in svs:
                 if sv == svn_search:
-                    #ind = ctr
                     break
                 ctr+=1
 
-            w = 1.#np.sin(data[i,2]/180.*np.pi)
+            w = 1. #np.sin(data[i,2]/180.*np.pi)
             iz = int(numParamsPerSat * ctr + niz)
             pco_iz = int(numParamsPerSat *ctr + numNADS )
 
@@ -382,6 +370,12 @@ if __name__ == "__main__":
     #===================================================================
     # Debug function, not needed
     args = parser.parse_args()
+
+    import matplotlib
+    if args.savePlots:
+        matplotlib.use('Agg')
+
+    import matplotlib.pyplot as plt
 
     # expand any home directory paths (~) to the full path, otherwise python won't find the file
     if args.resfile : args.resfile = os.path.expanduser(args.resfile)
@@ -754,6 +748,7 @@ if __name__ == "__main__":
             #ax.plot(nad,Sol[siz:eiz],'r-',linewidth=2)
             ax.errorbar(nad,Sol[siz:eiz],yerr=np.sqrt(variances[siz:eiz])/2.,fmt='o')
 
+            print(svn,Sol[siz:eiz],np.sqrt(variances[siz:eiz])/2.)
             ax.set_xlabel('Nadir Angle (degrees)',fontsize=8)
             ax.set_ylabel('Phase Residuals (mm)',fontsize=8)
             #ax.set_xlim([0, 14])
@@ -782,6 +777,7 @@ if __name__ == "__main__":
             eiz = numParamsPerSat *ctr + numParamsPerSat -1 
             #print(ctr,"PCO:",eiz)
             ax.plot(ctr,Sol[eiz],'k.',linewidth=2)
+            print(svn,Sol[eiz],np.sqrt(variances[eiz])/2.)
             #ax.errorbar(ctr,Sol[eiz],yerr=np.sqrt(variances[eiz])/2.,fmt='o')
             ctr += 1
 
@@ -814,6 +810,7 @@ if __name__ == "__main__":
                 print("Sol",np.shape(Sol),"siz  ",siz,eiz)
                 #ax.plot(ele,Sol[siz:eiz],'k.',linewidth=2)
                 ax.errorbar(ele,Sol[siz:eiz],yerr=np.sqrt(variances[siz:eiz])/2.,fmt='o')
+                print(svn,Sol[siz:eiz],np.sqrt(variances[siz:eiz])/2.)
 
                 ax.set_xlabel('Elevation Angle',fontsize=8)
                 ax.set_ylabel('Adjustment to PCO (mm)',fontsize=8)
