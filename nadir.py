@@ -2,19 +2,19 @@
 from __future__ import division, print_function, absolute_import
 
 import matplotlib.pyplot as plt
-from matplotlib import cm
+#from matplotlib import cm
 
 import numpy as np
 import re
-import gzip
+#import gzip
 import calendar
 import os, sys
 import datetime as dt
 
-from scipy import interpolate
-from scipy.stats.stats import nanmean, nanmedian, nanstd
-from scipy import sparse
-from scipy import stats
+#from scipy import interpolate
+#from scipy.stats.stats import nanmean, nanmedian, nanstd
+#from scipy import sparse
+#from scipy import stats
 
 #from multiprocessing import Process, Queue, current_process, freeze_support
 import multiprocessing
@@ -23,14 +23,13 @@ import antenna as ant
 import residuals as res
 import gpsTime as gt
 import GamitStationFile as gsf
-import time
+#import time
 import svnav
 
 
 def satelliteModel(antenna,nadirData):
     #assuming a 14 model at 1 deg intervals
     ctr = 0
-    newNoAzi = []
     # from the Nadir model force the value at 13.8 to be equal to 14.0
     for val in antenna['noazi'] :
         if ctr == 13:
@@ -93,7 +92,7 @@ def pwl(site_residuals, svs, nadSpacing=0.1,):
         ctr = 0
         for sv in svs:
             if sv == svn_search:
-                ind = ctr
+                #ind = ctr
                 break
             ctr+=1
 
@@ -214,7 +213,7 @@ def pwlNadirSite(site_residuals, svs, params, nadSpacing=0.1,zenSpacing=0.5):
             ctr = 0
             for sv in svs:
                 if sv == svn_search:
-                    ind = ctr
+                    #ind = ctr
                     break
                 ctr+=1
 
@@ -378,6 +377,7 @@ if __name__ == "__main__":
     #===================================================================
     # Plot options
     parser.add_argument('--plot',dest='plotNadir', default=False, action='store_true', help="Produce an elevation dependent plot of ESM phase residuals")
+    parser.add_argument('--ps','--plot_save',dest='savePlots',default=False,action='store_true', help="Save the plots in png format")
     
     #===================================================================
     # Debug function, not needed
@@ -387,7 +387,8 @@ if __name__ == "__main__":
     if args.resfile : args.resfile = os.path.expanduser(args.resfile)
     args.antex = os.path.expanduser(args.antex)
     args.svnavFile = os.path.expanduser(args.svnavFile)
-
+    args.station_file = os.path.expanduser(args.station_file)
+    
     svdat = []
     nadirData = {}
     cl3files = []
@@ -395,6 +396,8 @@ if __name__ == "__main__":
     totalSites = 1
     totalSiteModels = 0
     siteIDList = []
+    prechis = []
+    numds = []
 
     prechi = 0
     numd = 0
@@ -468,6 +471,9 @@ if __name__ == "__main__":
             multiprocessing.freeze_support()
             prechi, numd = setUpTasks(cl3files,svs,args,params)
             print("Prechi",prechi,np.sqrt(prechi/numd))
+            prechis.append(prechi)
+            numds.append(numd)
+            
             if args.parse_only:
                 sys.exit(0)
             #=====================================================================
@@ -496,12 +502,6 @@ if __name__ == "__main__":
 
             Neq = np.zeros((numParams,numParams))
             AtWb = np.zeros(numParams)
-
-            #print("Will have to solve for ",np.size(svs),"sats",svs)
-            #print("\t Creating a PWL linear model for Nadir satelites for SVS:\n")
-
-            #multiprocessing.freeze_support()
-            #setUpTasks(cl3files,svs,args,params)
 
             #=====================================================================
             # Now read in all of the numpy compressed files
@@ -609,8 +609,8 @@ if __name__ == "__main__":
                 mctr = mctr + info['numModels']
                 meta.append(info)
                 
-                prechi = prechi + npzfile['prechi']
-                numd = numd + npzfile['numd']
+                prechis.append(npzfile['prechi'])
+                numds.append(npzfile['numd'])
 
                 for s in range(0,info['numModels']):
                     siteIDList.append(info['site'])
@@ -655,7 +655,7 @@ if __name__ == "__main__":
                     mdlCtr = mdlCtr + 1
 
         if args.save_file:
-            np.savez_compressed('consolidated.npz',neq=Neq,atwb=AtWb,svs=svs)
+            np.savez_compressed('consolidated.npz',neq=Neq,atwb=AtWb,svs=svs,prechi=np.sum(prechi),numd=np.sum(numd))
         
     if not args.save_file:
         #========================================================================
@@ -702,32 +702,38 @@ if __name__ == "__main__":
                     C[start,start:end] = site_corr[0:(end - start)] 
                     C[start:end,start] = site_corr[0:(end - start)] 
 
-        C_inv = np.linalg.inv(C)
+        C_inv = np.linalg.pinv(C)
         del C
         
         # Add the parameter constraints to the Neq
         Neq = np.add(Neq,C_inv)
 
         print("Now trying an inverse")
-        Cov = np.linalg.pinv(Neq)
-        
+        #Cov = np.linalg.pinv(Neq)
+        Cho = np.linalg.cholesky(Neq)
+        Cho_inv = np.linalg.pinv(Cho)
+        Cov = np.dot(Cho_inv.T,Cho_inv)
+
         print("Now computing the solution")
         Sol = np.dot(Cov,AtWb)
         print("The solution is :",np.shape(Sol))
 
-            #f = loglikelihood(np.array(meas_complete),np.array(model_complete))
-            #numd = np.size(meas_complete)
-            #dof = numd - np.shape(Sol_complete)[0]
-            #aic = calcAIC(f,dof)
-            #bic = calcBIC(f,dof,numd)
-            #prechi = np.dot(np.array(meas_complete).T,np.array(meas_complete))
+        #f = loglikelihood(np.array(meas_complete),np.array(model_complete))
+        #numd = np.size(meas_complete)
+        #dof = numd - np.shape(Sol_complete)[0]
+        #aic = calcAIC(f,dof)
+        #bic = calcBIC(f,dof,numd)
+        prechi = np.sum(prechis)
+        numd = np.sum(numd)
+        print("Prechi, numd",prechi,numd)
+             
         postchi = prechi - np.dot(np.array(AtWb).T,np.array(Sol))
         print("STATS:",numd,np.sqrt(prechi/numd),np.sqrt(postchi/numd),np.sqrt((prechi-postchi)/numd))#,aic,bic)
 
-            #print("My loglikelihood:",f,aic,bic,dof,numd)
-            #print("STATS:",numd,np.sqrt(prechi/numd),np.sqrt(postchi/numd),np.sqrt((prechi-postchi)/numd),aic,bic)
-            #print("MaX PCO:",max_pco_iz)
-    if args.plotNadir:
+        #print("My loglikelihood:",f,aic,bic,dof,numd)
+        #print("STATS:",numd,np.sqrt(prechi/numd),np.sqrt(postchi/numd),np.sqrt((prechi-postchi)/numd),aic,bic)
+
+    if args.plotNadir or args.savePlots:
         nad = np.linspace(0,14, int(14./args.nadir_grid)+1 )
         numParamsPerSat = int(14.0/args.nadir_grid) + 2 
 
@@ -743,7 +749,8 @@ if __name__ == "__main__":
 
             siz = numParamsPerSat * ctr 
             eiz = numParamsPerSat *ctr + numNADS 
-            print("SVN:",svn,siz,eiz,numParamsPerSat,tSat)
+            
+            #print("SVN:",svn,siz,eiz,numParamsPerSat,tSat)
             #ax.plot(nad,Sol[siz:eiz],'r-',linewidth=2)
             ax.errorbar(nad,Sol[siz:eiz],yerr=np.sqrt(variances[siz:eiz])/2.,fmt='o')
 
@@ -756,10 +763,11 @@ if __name__ == "__main__":
                 item.set_fontsize(8)
 
             plt.tight_layout()
+            plt.savefig("SVN_"+svn+"_nadirCorrectionModel.png")
             ctr += 1
                 
-            if ctr > 10:
-                break
+            #if ctr > 10:
+            #    break
 
         #==================================================
         fig = plt.figure(figsize=(3.62, 2.76))
@@ -786,6 +794,7 @@ if __name__ == "__main__":
             item.set_fontsize(8)
 
         plt.tight_layout()
+        plt.savefig("PCO_correction.png")
 
         #==================================================
         if args.model == 'pwlSite':
@@ -815,7 +824,9 @@ if __name__ == "__main__":
                     item.set_fontsize(8)
 
                 plt.tight_layout()
-
-        plt.show()
+                plt.savefig(siteIDList[snum]+"_elevation_model.png")
+                
+        if args.plotNadir:
+            plt.show()
 
     print("FINISHED")

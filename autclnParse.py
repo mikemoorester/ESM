@@ -208,8 +208,6 @@ def searchAUTCLN(args):
 
     """
     autclns = []
-
-    #autclnRGX = re.compile('autcln.post.sum')
     autclnFile = 'autcln.post.sum'
 
     for root, dirs, files in os.walk(args.search):
@@ -219,10 +217,6 @@ def searchAUTCLN(args):
             aFile = root + '/' + autclnFile
             autcln = parseAUTCLNSUM(aFile)
             autclns.append(autcln)
-
-        #for gamitFile in files:
-        #    if siteRGX.search(gamitFile):
-        #        gamitFile = root+'/'+gamitFile
 
     return autclns
 #===========================================================================

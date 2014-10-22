@@ -13,14 +13,14 @@ import datetime as dt
 
 from scipy import interpolate
 from scipy.stats.stats import nanmean, nanmedian, nanstd
-from scipy import sparse
+#from scipy import sparse
 from scipy import stats
 
 import antenna as ant
 import residuals as res
 import gpsTime as gt
 import GamitStationFile as gsf
-import time
+#import time
 import svnav
 
 def loglikelihood(meas,model):
@@ -296,7 +296,6 @@ def plotModel(model,figname):
     return
 
 def plotModelElevationSlices(model,figname):
-    az = np.linspace(0, 360, np.shape(model)[0])
     zz = np.linspace(0, 90, np.shape(model)[1])
     ele = 90. - zz[::-1]
     zenRes = model[0,:]
@@ -320,7 +319,6 @@ def plotModelElevationSlices(model,figname):
     return
 
 def plotModelsElevationSlices(models,figname):
-    az = np.linspace(0, 360, np.shape(models)[1])
     zz = np.linspace(0, 90, np.shape(models)[2])
     ele = 90. - zz[::-1]
 
@@ -513,29 +511,6 @@ def create_esm(med,azGrid,zenGrid,antennas,antType):
     #print(L1(355,80),L1(355,82.5),L1(355,85),L1(355,86),L1(355,87),L1(355,88),L1(355,89),L1(355,90))
 
     return esm
-
-def parse_gmt(gmt_file):
-    gmt = np.genfromtxt(gen_file)
-
-    x_esm = np.linspace(0,360, int(360./azGrid)+1 )
-    y_esm = np.linspace(0,90, int(90./zenGrid)+1 )
-    med = np.zeros((x_esm.size,y_esm.size,2))
-
-    azS = 0.1
-    zenS = 0.1
-
-    for az in x_esm :
-        j = 0
-        for zen in y_esm :
-            if(i5 - azSpacing/2. < 0) :
-                criterion = (gmt[:,0] < (az + azS/2.)) | (gmt[:,0] > (360. - azS/2.) ) & (gmt[:,1] < zen + zenZ/2.) & (gmt[:,1] > zen - zenS/2. )
-            else:
-                criterion = (gmt[:,0] < (az + azS/2.)) & (gmt[:,0] > (az - azS/2.) ) & (gmt[:,1] < zen + zenZ/2.) & (gmt[:,1] > zen - zenS/2. )
-
-            ind = np.where(criterion)
-            if ind.size > 1:
-                print("ERROR have more than one value for :",az,zen, ind, gmt[ind,:])
-    return med
 
 def traverse_directory(args) :
     """
@@ -1191,7 +1166,6 @@ if __name__ == "__main__":
     # Debug function, not needed
     #parser.add_argument('--gmt',dest='gmt_file',help="Debug function not implemented, use a GMT fit of residuals")
     parser.add_argument('--sv','--svnav', dest="svnavFile",default="~/gg/tables/svnav.dat", help="Location of GAMIT svnav.dat")
-    #parser.add_argument('--version', action='version', version='%(prog)s 0.01') 
     args = parser.parse_args()
 
     # expand any home directory paths (~) to the full path, otherwise python won't find the file
@@ -1256,7 +1230,8 @@ if __name__ == "__main__":
                 for item in ([axBLK[i].title, axBLK[i].xaxis.label, axBLK[i].yaxis.label] +
                     axBLK[i].get_xticklabels() + axBLK[i].get_yticklabels()):
                     item.set_fontsize(8)
-
+                
+                
             # Do a plot of all the satellites now..
             fig = plt.figure(figsize=(3.62, 2.76))
             ax = fig.add_subplot(111)
@@ -1330,20 +1305,6 @@ if __name__ == "__main__":
         print("")
         sdata = gsf.parseSite(args.station_file,args.site.upper())
         change = gsf.determineESMChanges(dt_start,dt_stop,sdata)
-
-#       change = {}
-#       change['start_yyyy'] = [] # date antenna was installed on site
-#       change['start_ddd']  = []
-#       change['stop_yyyy']  = [] # date antenna was removed from the site
-#       change['stop_ddd']   = []
-#       change['ind']        = []
-#       change['valid_from'] = []
-#       change['valid_to']   = []
-
-
-#       # set up the initial instrument to have a start time as the first epoch we deal with
-#       change['start_yyyy'].append(dt_start.strftime("%Y"))
-#       change['start_ddd'].append(dt_start.strftime("%j"))
 
         # find the indices where the change occurs due to an antenna type / radome change
         ind = gsf.antennaChange(sdata)
