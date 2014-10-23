@@ -1,6 +1,8 @@
 #!/usr/bin/env python
 from __future__ import division, print_function, absolute_import
 
+import matplotlib
+matplotlib.use('Agg')
 
 import numpy as np
 import re
@@ -277,7 +279,7 @@ def neqBySite(params,svs,args):
     print("Returned Neq, AtWb:",np.shape(Neq_tmp),np.shape(AtWb_tmp))
             
     sf = params['filename']+".npz"
-    np.savez_compressed(sf,neq=Neq_tmp,atwb=AtWb_tmp,svs=svs,prechi=prechi,numd=numd)
+    np.savez_compressed(sf,neq=Neq_tmp,atwb=AtWb_tmp,svs=svs,prechi=[prechi],numd=[numd])
 
     return prechi_tmp, numd_tmp 
 
@@ -371,9 +373,10 @@ if __name__ == "__main__":
     # Debug function, not needed
     args = parser.parse_args()
 
-    import matplotlib
-    if args.savePlots:
-        matplotlib.use('Agg')
+    #import matplotlib
+    #if args.savePlots:
+    #matplotlib.use('Agg')
+    #    print("Only saving plots")
 
     import matplotlib.pyplot as plt
 
@@ -403,7 +406,7 @@ if __name__ == "__main__":
 
         if args.resfile :
             cl3files.append(args.resfile)
-            siteIDList.append(os.path.basename(args.resfile)[0:4])
+            siteIDList.append(os.path.basename(args.resfile)[0:4]+"_model_1")
         elif args.path:
             print("Checking {:s} for CL3 files".format(args.path))
             phsRGX = re.compile('.CL3$')
@@ -570,7 +573,7 @@ if __name__ == "__main__":
             numParamsPerSite = int(90./args.zen) + 1 
 
             if args.load_file:
-                npzfiles = np.append(args.load_file)
+                npzfiles.append(args.load_file)
             else:
                 npyRGX = re.compile('.npz')
                 for root, dirs, files in os.walk(args.load_path):
@@ -589,6 +592,7 @@ if __name__ == "__main__":
             numd = 0
             #=====================================================================
             # first thing, work out how many models and parameters we will need to account for
+            #=====================================================================
             for n in range(0,np.size(npzfiles)):
                 info = {}
                 filename = os.path.basename(npzfiles[n])
@@ -602,12 +606,12 @@ if __name__ == "__main__":
                 info['numModels'] = int((np.size(AtWb) - tSat)/numParamsPerSite)
                 mctr = mctr + info['numModels']
                 meta.append(info)
-                
+                print(npzfile['prechi']) 
                 prechis.append(npzfile['prechi'])
-                numds.append(npzfile['numd'])
+                numds.append(npzfile['numd'][0])
 
                 for s in range(0,info['numModels']):
-                    siteIDList.append(info['site'])
+                    siteIDList.append(info['site']+"_model_"+str(s+1))
                 del AtWb, npzfile
 
             totalSiteModels = mctr
@@ -646,6 +650,7 @@ if __name__ == "__main__":
 
                     # Adding in the correlation with the SVN and site
                     Neq[0:tSat-1,start:end] = Neq[0:tSat-1,start:end] + Neq_tmp[0:tSat-1,tmp_start:tmp_end]
+                    Neq[start:end,0:tSat-1] = Neq[start:end,0:tSat-1] + Neq_tmp[tmp_start:tmp_end,0:tSat-1]
                     mdlCtr = mdlCtr + 1
 
         if args.save_file:
@@ -733,22 +738,33 @@ if __name__ == "__main__":
 
         variances = np.diag(Neq)
         print("Variance:",np.shape(variances))
+
+        # Plot the sparsity of the matrix Neq
+        fig = plt.figure()
+        ax = fig.add_subplot(111)
+        ax.spy(Neq, precision=1e-3, marker='.', markersize=5)
+        if args.savePlots:
+            plt.savefig("NeqMatrix.png")
+        plt.tight_layout()
+
         del Neq, AtWb
 
         ctr = 0
         for svn in svs:
-            fig = plt.figure(figsize=(3.62, 2.76))
+            #fig = plt.figure(figsize=(3.62, 2.76))
+            fig = plt.figure()
             fig.canvas.set_window_title("SVN_"+svn+"_nadirCorrectionModel.png")
-            ax = fig.add_subplot(111)
+            ax = fig.add_subplot(212)
+            ax1 = fig.add_subplot(211)
 
             siz = numParamsPerSat * ctr 
             eiz = numParamsPerSat *ctr + numNADS 
             
             #print("SVN:",svn,siz,eiz,numParamsPerSat,tSat)
-            #ax.plot(nad,Sol[siz:eiz],'r-',linewidth=2)
+            ax1.plot(nad,Sol[siz:eiz],'r-',linewidth=2)
             ax.errorbar(nad,Sol[siz:eiz],yerr=np.sqrt(variances[siz:eiz])/2.,fmt='o')
 
-            print(svn,Sol[siz:eiz],np.sqrt(variances[siz:eiz])/2.)
+            #print(svn,Sol[siz:eiz],np.sqrt(variances[siz:eiz])/2.)
             ax.set_xlabel('Nadir Angle (degrees)',fontsize=8)
             ax.set_ylabel('Phase Residuals (mm)',fontsize=8)
             #ax.set_xlim([0, 14])
@@ -758,16 +774,26 @@ if __name__ == "__main__":
                 item.set_fontsize(8)
 
             plt.tight_layout()
-            plt.savefig("SVN_"+svn+"_nadirCorrectionModel.png")
+
+            for item in ([ax1.title, ax1.xaxis.label, ax1.yaxis.label] +
+                       ax1.get_xticklabels() + ax1.get_yticklabels()):
+                item.set_fontsize(8)
+
+            plt.tight_layout()
+            if args.savePlots:
+                plt.savefig("SVN_"+svn+"_nadirCorrectionModel.png")
             ctr += 1
                 
             #if ctr > 10:
             #    break
 
         #==================================================
-        fig = plt.figure(figsize=(3.62, 2.76))
+        #fig = plt.figure(figsize=(3.62, 2.76))
+        fig = plt.figure()
         fig.canvas.set_window_title("PCO_correction.png")
-        ax = fig.add_subplot(111)
+        #ax = fig.add_subplot(111)
+        ax = fig.add_subplot(212)
+        ax1 = fig.add_subplot(211)
         ctr = 0
         numSVS = np.size(svs)
         numNADS = int(14.0/args.nadir_grid) + 1 
@@ -776,9 +802,10 @@ if __name__ == "__main__":
         for svn in svs:
             eiz = numParamsPerSat *ctr + numParamsPerSat -1 
             #print(ctr,"PCO:",eiz)
-            ax.plot(ctr,Sol[eiz],'k.',linewidth=2)
-            print(svn,Sol[eiz],np.sqrt(variances[eiz])/2.)
-            #ax.errorbar(ctr,Sol[eiz],yerr=np.sqrt(variances[eiz])/2.,fmt='o')
+            ax1.plot(ctr,Sol[eiz],'k.',linewidth=2)
+            #print(svn,Sol[eiz],np.sqrt(variances[eiz])/2.)
+            #ax.subplot(212)
+            ax.errorbar(ctr,Sol[eiz],yerr=np.sqrt(variances[eiz])/2.,fmt='o')
             ctr += 1
 
         ax.set_xlabel('SVN',fontsize=8)
@@ -788,9 +815,15 @@ if __name__ == "__main__":
         for item in ([ax.title, ax.xaxis.label, ax.yaxis.label] +
                    ax.get_xticklabels() + ax.get_yticklabels()):
             item.set_fontsize(8)
-
         plt.tight_layout()
-        plt.savefig("PCO_correction.png")
+
+        for item in ([ax1.title, ax1.xaxis.label, ax1.yaxis.label] +
+                   ax1.get_xticklabels() + ax1.get_yticklabels()):
+            item.set_fontsize(8)
+        plt.tight_layout()
+
+        if args.savePlots:
+            plt.savefig("PCO_correction.png")
 
         #==================================================
         if args.model == 'pwlSite':
@@ -801,27 +834,35 @@ if __name__ == "__main__":
             print("Number of Params per Sat:",numParamsPerSat,"numNads",numNADS,"Sol",np.shape(Sol),"TotalSites:",totalSiteModels)
             numParams = numSVS * (numParamsPerSat) + numParamsPerSite * totalSiteModels 
             for snum in range(0,totalSiteModels):
-                fig = plt.figure(figsize=(3.62, 2.76))
+                #fig = plt.figure(figsize=(3.62, 2.76))
+                fig = plt.figure()
                 fig.canvas.set_window_title(siteIDList[snum]+"_elevation_model.png")
-                ax = fig.add_subplot(111)
+                ax = fig.add_subplot(212)
+                ax1 = fig.add_subplot(211)
                 siz = numParamsPerSat*numSVS + snum * numParamsPerSite 
                 eiz = siz + numParamsPerSite 
                 ele = np.linspace(0,90,numParamsPerSite)
-                print("Sol",np.shape(Sol),"siz  ",siz,eiz)
-                #ax.plot(ele,Sol[siz:eiz],'k.',linewidth=2)
+                #print("Sol",np.shape(Sol),"siz  ",siz,eiz)
+                ax1.plot(ele,Sol[siz:eiz],'k.',linewidth=2)
                 ax.errorbar(ele,Sol[siz:eiz],yerr=np.sqrt(variances[siz:eiz])/2.,fmt='o')
-                print(svn,Sol[siz:eiz],np.sqrt(variances[siz:eiz])/2.)
+                #print(svn,Sol[siz:eiz],np.sqrt(variances[siz:eiz])/2.)
 
                 ax.set_xlabel('Elevation Angle',fontsize=8)
                 ax.set_ylabel('Adjustment to PCO (mm)',fontsize=8)
                 #ax.set_xlim([0, 14])
+
+                for item in ([ax1.title, ax1.xaxis.label, ax1.yaxis.label] +
+                                ax1.get_xticklabels() + ax1.get_yticklabels()):
+                    item.set_fontsize(8)
+                plt.tight_layout()
 
                 for item in ([ax.title, ax.xaxis.label, ax.yaxis.label] +
                     ax.get_xticklabels() + ax.get_yticklabels()):
                     item.set_fontsize(8)
 
                 plt.tight_layout()
-                plt.savefig(siteIDList[snum]+"_elevation_model.png")
+                if args.savePlots:
+                    plt.savefig(siteIDList[snum]+"_elevation_model.png")
                 
         if args.plotNadir:
             plt.show()
