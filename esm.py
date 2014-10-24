@@ -1089,6 +1089,27 @@ def meanAdjustELE(site_residuals, azSpacing=0.5,zenSpacing=0.5):
 
     return pwl,pwlsig,stats
 
+def nadirPlot(svnav,nadirData,i):
+    fig = plt.figure(figsize=(3.62, 2.76))
+    ax = fig.add_subplot(111)
+
+    for sv in nadirData:
+        blk = int(svnav.findBLK_SV(svdat,sv))
+        if blk == i:
+            ax.plot(nadir,nadirData[sv],'-',alpha=0.7,linewidth=1,label="SV "+str(sv))
+
+    ax.set_xlabel('Nadir Angle (degrees)',fontsize=8)
+    ax.set_ylabel('Residual (mm)',fontsize=8)
+    ax.set_xlim([0, 14])
+    ax.set_ylim([-5,5])
+    ax.legend(fontsize=8,ncol=3)
+    title = svnav.blockType(i)
+    ax.set_title(title,fontsize=8)
+    for item in ([ax.title, ax.xaxis.label, ax.yaxis.label] +
+                 ax.get_xticklabels() + ax.get_yticklabels()):
+        item.set_fontsize(8)
+
+    return fig 
 #==============================================================================
 #
 # TODO:
@@ -1208,32 +1229,72 @@ if __name__ == "__main__":
             # prepare a plot for each satellite block
             figBLK = []
             axBLK = []
-            for i in range(0,7):
-                figTmp = plt.figure(figsize=(3.62, 2.76))
-                figBLK.append(figTmp)
-                axTmp  = figBLK[i].add_subplot(111)
-                axBLK.append(axTmp)
 
-            # now plot by block
-            for sv in nadirData:
-                blk = svnav.findBLK_SV(svdat,sv)
-                axBLK[int(blk)-1].plot(nadir,nadirData[sv],'-',alpha=0.7,linewidth=1,label="SV "+str(sv))
+            fig1 = nadirPlot(svnav,nadirData,1)
+            plt.tight_layout()
+            title = svnav.blockType(1)
+            plt.savefig(title+".eps")
+
+            fig2 = nadirPlot(svnav,nadirData,2)
+            plt.tight_layout()
+            title = svnav.blockType(2)
+            plt.savefig(title+".eps")
+
+            fig3 = nadirPlot(svnav,nadirData,3)
+            plt.tight_layout()
+            title = svnav.blockType(3)
+            plt.savefig(title+".eps")
+
+            fig4 = nadirPlot(svnav,nadirData,4)
+            plt.tight_layout()
+            title = svnav.blockType(4)
+            plt.savefig(title+".eps")
+
+            fig5 = nadirPlot(svnav,nadirData,5)
+            plt.tight_layout()
+            title = svnav.blockType(5)
+            plt.savefig(title+".eps")
+
+            fig6 = nadirPlot(svnav,nadirData,6)
+            plt.tight_layout()
+            title = svnav.blockType(6)
+            plt.savefig(title+".eps")
+
+            fig7 = nadirPlot(svnav,nadirData,7)
+            plt.tight_layout()
+            title = svnav.blockType(7)
+            plt.savefig(title+".eps")
+
+
+            #for i in range(0,7):
+            #    figTmp = plt.figure(figsize=(3.62, 2.76))
+            #    figBLK.append(figTmp)
+            #    axTmp  = figBLK[i].add_subplot(111)
+            #    axBLK.append(axTmp)
 
             # tidy each plot up
-            for i in range(0,7):
-                axBLK[i].set_xlabel('Nadir Angle (degrees)',fontsize=8)
-                axBLK[i].set_ylabel('Residual (mm)',fontsize=8)
-                axBLK[i].set_xlim([0, 14])
-                axBLK[i].set_ylim([-5,5])
-                axBLK[i].legend(fontsize=8,ncol=3)
-                title = svnav.blockType(i+1)
-                axBLK[i].set_title(title,fontsize=8)
-                for item in ([axBLK[i].title, axBLK[i].xaxis.label, axBLK[i].yaxis.label] +
-                    axBLK[i].get_xticklabels() + axBLK[i].get_yticklabels()):
-                    item.set_fontsize(8)
-                #axBLK[i].tight_layout() 
-                plt.tight_layout()
+            #for i in range(0,7):
+            #    axBLK[i].set_xlabel('Nadir Angle (degrees)',fontsize=8)
+            #    axBLK[i].set_ylabel('Residual (mm)',fontsize=8)
+            #    axBLK[i].set_xlim([0, 14])
+            #    axBLK[i].set_ylim([-5,5])
+            #    axBLK[i].legend(fontsize=8,ncol=3)
+            #    title = svnav.blockType(i+1)
+            #    axBLK[i].set_title(title,fontsize=8)
+            #    for item in ([axBLK[i].title, axBLK[i].xaxis.label, axBLK[i].yaxis.label] +
+            #        axBLK[i].get_xticklabels() + axBLK[i].get_yticklabels()):
+            #        item.set_fontsize(8)
+            #    #axBLK[i].tight_layout() 
+            #    plt.tight_layout()
+            #    axBLK[i].
+            #    plt.savefig(title+".eps")
                 
+            #ax1 = nadirPlot(ax1,svnav,1)
+            #title = svnav.blockType(1)
+            #plt.tight_layout()
+            #plt.savefig(title+".eps")
+
+
             # Do a plot of all the satellites now..
             fig = plt.figure(figsize=(3.62, 2.76))
             ax = fig.add_subplot(111)
@@ -1251,6 +1312,7 @@ if __name__ == "__main__":
                 item.set_fontsize(8)
 
             plt.tight_layout()
+            plt.savefig("NadirResiduals_All.eps")
     
             # Plot the satellites by block
             blocks = np.unique(nadir[:,])
@@ -1618,4 +1680,4 @@ if __name__ == "__main__":
                     freq_ctr +=1
                 print_end_antenna(f)
         f.close()
-    print("FINISHED")
+    #print("FINISHED")
