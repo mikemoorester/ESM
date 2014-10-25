@@ -18,7 +18,6 @@ import gpsTime as gt
 import GamitStationFile as gsf
 import svnav
 
-
 def satelliteModel(antenna,nadirData):
     #assuming a 14 model at 1 deg intervals
     ctr = 0
@@ -39,9 +38,7 @@ def calcNadirAngle(ele):
         Calculate the NADIR angle based on the station's elevation angle
 
     """
-
     nadeg = np.arcsin(6378.0/26378.0 * np.cos(ele/180.*np.pi)) * 180./np.pi
-
     return nadeg
 
 def pwl(site_residuals, svs, nadSpacing=0.1,):
@@ -279,6 +276,13 @@ def neqBySite(params,svs,args):
     print("Returned Neq, AtWb:",np.shape(Neq_tmp),np.shape(AtWb_tmp))
             
     sf = params['filename']+".npz"
+    non_zero = 0
+    for i in range(0,np.shape(Neq_tmp)[0]):
+        criterion = (np.abs(Neq_tmp[:,i]) > 0.00001)
+        non_zero = non_zero + np.size(np.array(np.where(criterion)))
+    Msize = np.size(Neq_tmp)
+    density = np.float(non_zero)/np.float(Msize)
+    print("Density of Neq:{:.3f} {:d} {:d}".format(density,non_zero,Msize))
     np.savez_compressed(sf,neq=Neq_tmp,atwb=AtWb_tmp,svs=svs,prechi=[prechi],numd=[numd])
 
     return prechi_tmp, numd_tmp 
@@ -295,7 +299,7 @@ def setUpTasks(cl3files,svs,opts,params):
     #print("Creating a pool of {:d} processes".format(NUMBER_OF_PROCESSES))
 
     pool = multiprocessing.Pool(NUMBER_OF_PROCESSES)
-    #print("pool = {:s}".format(pool))
+
     # Submit the tasks
     results = []
     for i in range(0,np.size(cl3files)) :
@@ -514,6 +518,16 @@ if __name__ == "__main__":
                 Neq_tmp  = npzfile['neq']
                 AtWb_tmp = npzfile['atwb']
 
+                #non_zero = 0
+                ## Check how many elements have values..
+                #for i in range(0,np.shape(Neq_tmp)[0]):
+                #    criterion = (np.abs(Neq_tmp[:,i]) > 0.00001)
+                #    non_zero = non_zero + np.size(np.array(np.where(criterion)))
+
+                #Msize = np.size(Neq_tmp)
+                #density = np.float(non_zero)/np.float(Msize)
+                #print("Density of Neq:{:s} {:.3f} {:d} {:d}".format(filename,density,non_zero,Msize))
+
                 # only need one copy of the svs array, they should be eactly the same
                 if nctr == 0:
                     svs_tmp  = npzfile['svs']
@@ -555,7 +569,6 @@ if __name__ == "__main__":
 
             if args.save_file:
                 np.savez_compressed('consolidated.npz',neq=Neq,atwb=AtWb,svs=svs)
-        
             #=====================================================================
             # End of if not load_file or not load_path
             #=====================================================================
@@ -608,7 +621,7 @@ if __name__ == "__main__":
                 meta.append(info)
                 print(npzfile['prechi']) 
                 prechis.append(npzfile['prechi'])
-                numds.append(npzfile['numd'][0])
+                numds.append(npzfile['numd'])
 
                 for s in range(0,info['numModels']):
                     siteIDList.append(info['site']+"_model_"+str(s+1))
@@ -653,8 +666,18 @@ if __name__ == "__main__":
                     Neq[start:end,0:tSat-1] = Neq[start:end,0:tSat-1] + Neq_tmp[tmp_start:tmp_end,0:tSat-1]
                     mdlCtr = mdlCtr + 1
 
+                non_zero = 0
+                # Check how many elements have values..
+                for i in range(0,np.shape(Neq_tmp)[0]):
+                    criterion = (np.abs(Neq_tmp[:,i]) > 0.00001)
+                    non_zero = non_zero + np.size(np.array(np.where(criterion)))
+                Msize = np.size(Neq_tmp)
+                density = np.float(non_zero)/np.float(Msize)
+                print("Density of Neq:{:s} {:.3f} {:d} {:d}".format(npzfiles[n],density,non_zero,Msize))
+            #sys.exit(0) 
+
         if args.save_file:
-            np.savez_compressed('consolidated.npz',neq=Neq,atwb=AtWb,svs=svs,prechi=np.sum(prechi),numd=np.sum(numd))
+            np.savez_compressed('stacked.npz',neq=Neq,atwb=AtWb,svs=svs,prechi=np.sum(prechi),numd=np.sum(numd))
         
     if not args.save_file:
         #========================================================================
@@ -665,8 +688,10 @@ if __name__ == "__main__":
         #sPCV_constraint = 0.1
         sPCV_constraint = 0.01
         sPCV_window = 1.0     # assume the PCV variation is correlated at this degree level
+        #sPCV_window = 1.0     # assume the PCV variation is correlated at this degree level
         site_constraint = 10.0
-        site_window = 1.5
+        #site_window = 15.5
+        site_window = 1.0
 
         C = np.eye(numParams,dtype=float) * sPCV_constraint
         if args.model == 'pwlSite' :
@@ -690,6 +715,7 @@ if __name__ == "__main__":
                     C[start,start:end] = sPCV_corr[0:(end - start)] 
                     C[start:end,start] = sPCV_corr[0:(end - start)] 
 
+            # Add in the correlation constraints for the sites PCVs
             for s in range(0,numSites):
                 for ind in range(0,numParamsPerSite-np.size(site_corr) ):
                     start = tSat + (s * numParamsPerSite) + ind
@@ -704,6 +730,16 @@ if __name__ == "__main__":
         C_inv = np.linalg.pinv(C)
         del C
         
+        if args.plotNadir or args.savePlots:
+            #============================================
+            # Plot the sparsity of the matrix Neq before constraints are added
+            fig = plt.figure()
+            ax = fig.add_subplot(111)
+            ax.spy(Neq, precision=1e-3, marker='.', markersize=5)
+            if args.savePlots:
+                plt.savefig("NeqMatrix.png")
+            plt.tight_layout()
+
         # Add the parameter constraints to the Neq
         Neq = np.add(Neq,C_inv)
 
@@ -717,20 +753,12 @@ if __name__ == "__main__":
         Sol = np.dot(Cov,AtWb)
         print("The solution is :",np.shape(Sol))
 
-        #f = loglikelihood(np.array(meas_complete),np.array(model_complete))
-        #numd = np.size(meas_complete)
-        #dof = numd - np.shape(Sol_complete)[0]
-        #aic = calcAIC(f,dof)
-        #bic = calcBIC(f,dof,numd)
         prechi = np.sum(prechis)
         numd = np.sum(numd)
         print("Prechi, numd",prechi,numd)
              
         postchi = prechi - np.dot(np.array(AtWb).T,np.array(Sol))
         print("STATS:",numd,np.sqrt(prechi/numd),np.sqrt(postchi/numd),np.sqrt((prechi-postchi)/numd))#,aic,bic)
-
-        #print("My loglikelihood:",f,aic,bic,dof,numd)
-        #print("STATS:",numd,np.sqrt(prechi/numd),np.sqrt(postchi/numd),np.sqrt((prechi-postchi)/numd),aic,bic)
 
     if args.plotNadir or args.savePlots:
         nad = np.linspace(0,14, int(14./args.nadir_grid)+1 )
@@ -739,16 +767,47 @@ if __name__ == "__main__":
         variances = np.diag(Neq)
         print("Variance:",np.shape(variances))
 
+        #============================================
         # Plot the sparsity of the matrix Neq
         fig = plt.figure()
         ax = fig.add_subplot(111)
         ax.spy(Neq, precision=1e-3, marker='.', markersize=5)
-        if args.savePlots:
-            plt.savefig("NeqMatrix.png")
+
+        ctr = 0
+        xlabels = []
+        xticks = []
+        for svn in svs:
+            siz = numParamsPerSat * ctr 
+            eiz = numParamsPerSat *ctr + numNADS 
+            ctr = ctr + 1
+            xlabels.append(svn)
+            tick = int((eiz-siz)/2)+siz
+            xticks.append(tick)
+
+        
+        for snum in range(0,totalSiteModels):
+            siz = numParamsPerSat*numSVS + snum * numParamsPerSite 
+            eiz = siz + numParamsPerSite 
+            xlabels.append(siteIDList[snum])
+            tick = int((eiz-siz)/2)+siz
+            xticks.append(tick)
+
+        print("XTICKS:",xticks)
+        ax.set_xticks(xticks)
+        ax.set_xticklabels(xlabels,rotation='vertical')
+        for item in ([ax.title, ax.xaxis.label, ax.yaxis.label] +
+                       ax.get_xticklabels() + ax.get_yticklabels()):
+            item.set_fontsize(4)
+
         plt.tight_layout()
+        if args.savePlots:
+            plt.savefig("NeqMatrix_with_constraints.eps")
 
         del Neq, AtWb
 
+        #============================================
+        # Plot the SVN stacked residuals/correction
+        #============================================
         ctr = 0
         for svn in svs:
             #fig = plt.figure(figsize=(3.62, 2.76))
@@ -784,8 +843,8 @@ if __name__ == "__main__":
                 plt.savefig("SVN_"+svn+"_nadirCorrectionModel.png")
             ctr += 1
                 
-            #if ctr > 10:
-            #    break
+            if ctr > 2:
+                break
 
         #==================================================
         #fig = plt.figure(figsize=(3.62, 2.76))
