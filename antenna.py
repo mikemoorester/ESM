@@ -473,6 +473,7 @@ def satSearch(antennas,dts,dte):
                 #print("Found:",antenna['scode'])
                 found.append(antenna['scode'].rstrip())
 
+    found = np.unique(found)
     return found 
 
 def printAntexHeader(f):

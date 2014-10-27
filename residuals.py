@@ -379,6 +379,79 @@ def findTimeRange(minVal,maxVal,siteRes):
 
     return ind
 
+def gamitWeight(site_residuals):
+    """
+    Determine the gamit weighting of the phase residuals
+
+    see ~/gg/kf/ctogobs/proc_phsin.f line ~ 2530
+    """
+    # norm  - Normal equation for sig**2 = a**2 + b**2/sine(elevation)**2
+    # b     - Solution vector
+    # det   - determinant of norm
+    # zpart - Partial for 1/sine(el)**2
+    # zdep  - A and B coefficients for the model
+
+    sums_lc = np.zeros(18)
+    nums_lc = np.zeros(18)
+
+    norm = np.zeros(3)
+    b = np.zeros(2)
+    zdep = np.zeros(2)
+
+    # Split everything up into 17 bins
+    for r in range(0,np.shape(site_residuals)[0]):
+        ele_bin = int(site_residuals[r,2]/5.0)
+        sums_lc[ele_bin] = sums_lc[ele_bin] + site_residuals[r,3]**2
+        nums_lc[ele_bin] = nums_lc[ele_bin] + 1
+
+    for i in range(0,18):
+        if nums_lc[i] > 0:
+            sums_lc[i] = np.sqrt( sums_lc[i] / nums_lc[i] )
+
+        zpart = 1. / np.sin(np.radians(i*5.0 + 2.5))**2
+
+        # Accumulate the normals weighted by the number of data points
+        if nums_lc[i] > 0 :
+            norm[0] = norm[0] + 1
+            norm[1] = norm[1] + zpart
+            norm[2] = norm[2] + zpart**2
+            b[0] = b[0] + sums_lc[i]**2
+            b[1] = b[1] + zpart*sums_lc[i]**2
+
+    # Now compute the determinate and solve the equations accounting
+    # for both zdep(1) and zdep(2) need to be positive
+    det = norm[0] * norm[2] - norm[1]**2
+    if det > 0.:
+        zdep[0] = (b[0] * norm[2] - b[1]*norm[1]) / det
+        zdep[1] = (b[1] * norm[0] - b[0]*norm[1]) / det
+
+        # If the mean is less than zero, set it to 1 mm and use elevation angle dependence   
+        if zdep[0] < 0.0 :
+            zdep[0] = (zdep[0] + zdep[1])/2.
+            b[1] = b[1] - norm[1]*zdep[0]
+            zdep[1] = b[1]/norm[2]
+
+        # If the elevation term is zero, then just use a constant value
+        if zdep[1] < 0.0 :
+            zdep[0] = b[0]/norm[0]
+            zdep[0] = 0.0
+    else:
+        if norm[0] > 0:
+            zdep[0] = b[0]/norm[0]
+            zdep[1] = 0.0
+        else:
+            zdep[0] = 10.0
+            zdep[1] = 0.0
+
+    # Final check to make sure a non-zero value is given
+    if zdep[0] < 0.01:
+        zdep[0] = 10.0
+
+    a = zdep[0]
+    b = zdep[1]
+
+    return a, b
+
 #===========================================================================
 if __name__ == "__main__":
 
