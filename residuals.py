@@ -421,6 +421,7 @@ def gamitWeight(site_residuals):
     # Now compute the determinate and solve the equations accounting
     # for both zdep(1) and zdep(2) need to be positive
     det = norm[0] * norm[2] - norm[1]**2
+    print("DET:",det,b[0],b[1],norm[0],norm[1],norm[2])
     if det > 0.:
         zdep[0] = (b[0] * norm[2] - b[1]*norm[1]) / det
         zdep[1] = (b[1] * norm[0] - b[0]*norm[1]) / det
@@ -430,25 +431,29 @@ def gamitWeight(site_residuals):
             zdep[0] = (zdep[0] + zdep[1])/2.
             b[1] = b[1] - norm[1]*zdep[0]
             zdep[1] = b[1]/norm[2]
-
+            print("1, mean is less than zero")
         # If the elevation term is zero, then just use a constant value
         if zdep[1] < 0.0 :
             zdep[0] = b[0]/norm[0]
-            zdep[0] = 0.0
+            zdep[1] = 0.0
+            print("2,elevation term is zero, use a constan value")
     else:
         if norm[0] > 0:
             zdep[0] = b[0]/norm[0]
             zdep[1] = 0.0
+            print("3,blah")
         else:
             zdep[0] = 10.0
             zdep[1] = 0.0
+            print("4,blah")
 
     # Final check to make sure a non-zero value is given
     if zdep[0] < 0.01:
         zdep[0] = 10.0
+        print("5,blah")
 
-    a = zdep[0]
-    b = zdep[1]
+    a = np.sqrt(zdep[0])
+    b = np.sqrt(zdep[1])
 
     return a, b
 

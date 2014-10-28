@@ -184,8 +184,10 @@ def pwlNadirSite(site_residuals, svs, params, nadSpacing=0.1,zenSpacing=0.5):
         #print("finished outlier detection",np.shape(data))
         del tdata
 
-        a = 3.5
-        b = 4.1
+        #a = 3.5
+        #b = 4.1
+        a,b = res.gamitWeight(data)
+        print("GAMIT:",a,b)
         # Get the total number of observations for this site
         numd = np.shape(data)[0]
         #print("Have:",numd,"observations")
@@ -336,28 +338,32 @@ def pwlNadirSiteDailyStack(site_residuals, svs, params, nadSpacing=0.1,zenSpacin
         for d in range(0,diff_dt.days):
             minDTO = minVal_dt + dt.timedelta(days = d)
             maxDTO = minVal_dt + dt.timedelta(days = d+1)
-            #print(d,"Stacking residuals on:",minDTO,maxDTO)
+            print(d,"Stacking residuals on:",minDTO,maxDTO)
             criterion = ( ( model_residuals[:,0] >= calendar.timegm(minDTO.utctimetuple()) ) &
                           ( model_residuals[:,0] < calendar.timegm(maxDTO.utctimetuple()) ) )
             tind = np.array(np.where(criterion))[0]
-            #print("rejecting any residuals greater than 100mm",np.shape(site_residuals))
+
+            if np.size(tind) < 300:
+                continue
+
+            print("rejecting any residuals greater than 100mm",np.shape(site_residuals))
             tdata = res.reject_absVal(model_residuals[tind,:],100.)
             #if m >= (int(params['numModels']) -1 ):
             #    del site_residuals
 
             #print("rejecting any residuals greater than 5 sigma",np.shape(tdata))
             data = res.reject_outliers_elevation(tdata,5,0.5)
-            #print("finished outlier detection",np.shape(data))
+            print("finished outlier detection",np.shape(data))
             del tdata
 
             # determine the elevation dependent weighting
-            #a,b = res.gamitWeight(data)
-            #print("Gamit Weighting:",d,a,b)
-            a = 3.5
-            b = 4.1
+            a,b = res.gamitWeight(data)
+            print("Gamit Weighting:",d,a,b)
+            #a = 3.5
+            #b = 4.1
             # Get the total number of observations for this site
             numd = np.shape(data)[0]
-            print("Have:",numd,"observations")
+            #print("Have:",numd,"observations")
             for i in range(0,numd):
                 # work out the nadir angle
                 nadir = calcNadirAngle(data[i,2])
@@ -378,6 +384,7 @@ def pwlNadirSiteDailyStack(site_residuals, svs, params, nadSpacing=0.1,zenSpacin
 
                 #w = 1./ np.sin(np.radians(data[i,2])) **2
                 w = a**2 + b**2/np.sin(np.radians(data[i,2]))**2
+                print("Ele, W:",data[i,2],w,np.sqrt(w))
                 w = 1./w
                 iz = int(numParamsPerSat * ctr + niz)
                 pco_iz = int(numParamsPerSat *ctr + numNADS )
@@ -868,11 +875,12 @@ if __name__ == "__main__":
         # keep the site model free ~ 10mm  0.01 => 1/sqrt(0.01) = 10 (mm)
         # Adding 1 mm constraint to satellites
         #========================================================================
-        #sPCV_constraint = 0.1
-        sPCV_constraint = 0.0001
+        sPCV_constraint = 1.0
+        sPCO_constraint = 0.001
+        #sPCV_constraint = 0.0001
         sPCV_window = 0.5     # assume the PCV variation is correlated at this degree level
-        #site_constraint = 10.0
-        site_constraint = 0.0001
+        site_constraint = 10.0
+        #site_constraint = 0.0001
         site_window = 1.5
 
         C = np.eye(numParams,dtype=float) * sPCV_constraint
@@ -898,6 +906,12 @@ if __name__ == "__main__":
                     C[start:end,start] = sPCV_corr[0:(end - start)] 
                     #C[start,(start+1):end] = C[start,(start+1):end] + sPCV_corr[1:(end - start)] 
                     #C[(start+1):end,start] = C[(start+1):end,start] + sPCV_corr[1:(end - start)] 
+
+            # Add in the satellie PCO constraints
+            for s in range(0,numSVS):
+                ind = (s * numParamsPerSat) + numParamsPerSat - 1 
+                print("PCOCOnstraint",s,ind,sPCO_constraint)
+                C[ind,ind] = sPCO_constraint
 
             # Add in the correlation constraints for the sites PCVs
             for s in range(0,numSites):
