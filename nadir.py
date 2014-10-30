@@ -1,8 +1,8 @@
 #!/usr/bin/env python
 from __future__ import division, print_function, absolute_import
 
-#import matplotlib
-#matplotlib.use('Agg')
+import matplotlib
+matplotlib.use('Agg')
 
 import numpy as np
 import re
@@ -55,7 +55,8 @@ def pwl(site_residuals, svs, nadSpacing=0.1,):
     tdata = res.reject_absVal(site_residuals,100.)
     del site_residuals 
     #print("rejecting any residuals greater than 5 sigma",np.shape(tdata))
-    data = res.reject_outliers_elevation(tdata,5,0.5)
+    #data = res.reject_outliers_elevation(tdata,5,0.5)
+    data = tdata
     #print("finished outlier detection",np.shape(data))
     del tdata
 
@@ -184,8 +185,6 @@ def pwlNadirSite(site_residuals, svs, params, nadSpacing=0.1,zenSpacing=0.5):
         #print("finished outlier detection",np.shape(data))
         del tdata
 
-        #a = 3.5
-        #b = 4.1
         a,b = res.gamitWeight(data)
         print("GAMIT:",a,b)
         # Get the total number of observations for this site
@@ -333,9 +332,16 @@ def pwlNadirSiteDailyStack(site_residuals, svs, params, nadSpacing=0.1,zenSpacin
         mind = np.array(np.where(criterion))[0]
         model_residuals = site_residuals[mind,:]
         diff_dt = maxVal_dt - minVal_dt
-        print("Have a total of",diff_dt.days,"days")
+        numDays = diff_dt.days + 1
+        print("Have a total of",numDays,"days")
 
-        for d in range(0,diff_dt.days):
+        lookup_svs = {}
+        ctr = 0
+        for sv in svs:
+            lookup_svs[str(sv)] = ctr
+            ctr+=1
+
+        for d in range(0,numDays):
             minDTO = minVal_dt + dt.timedelta(days = d)
             maxDTO = minVal_dt + dt.timedelta(days = d+1)
             print(d,"Stacking residuals on:",minDTO,maxDTO)
@@ -359,8 +365,7 @@ def pwlNadirSiteDailyStack(site_residuals, svs, params, nadSpacing=0.1,zenSpacin
             # determine the elevation dependent weighting
             a,b = res.gamitWeight(data)
             print("Gamit Weighting:",d,a,b)
-            #a = 3.5
-            #b = 4.1
+
             # Get the total number of observations for this site
             numd = np.shape(data)[0]
             #print("Have:",numd,"observations")
@@ -368,26 +373,27 @@ def pwlNadirSiteDailyStack(site_residuals, svs, params, nadSpacing=0.1,zenSpacin
                 # work out the nadir angle
                 nadir = calcNadirAngle(data[i,2])
                 niz = int(np.floor(nadir/nadSpacing))
-
                 nsiz = int(np.floor(data[i,2]/zenSpacing))
+                #print("NADIR:",nadir,niz,data[i,2],nsiz)
                 siz = int( tSat +  m*numParamsPerSite + nsiz)
 
                 # work out the svn number
                 svndto =  gt.unix2dt(data[i,0])
                 svn = svnav.findSV_DTO(svdat,data[i,4],svndto)
                 svn_search = 'G{:03d}'.format(svn) 
-                ctr = 0
-                for sv in svs:
-                    if sv == svn_search:
-                        break
-                    ctr+=1
-
+                #ctr = 0
+                #for sv in svs:
+                #    if sv == svn_search:
+                #        break
+                #    ctr+=1
+                ctr = lookup_svs[str(svn_search)]
                 #w = 1./ np.sin(np.radians(data[i,2])) **2
                 w = a**2 + b**2/np.sin(np.radians(data[i,2]))**2
-                print("Ele, W:",data[i,2],w,np.sqrt(w))
+                #print("Ele, W:",data[i,2],w,np.sqrt(w))
                 w = 1./w
-                iz = int(numParamsPerSat * ctr + niz)
-                pco_iz = int(numParamsPerSat *ctr + numNADS )
+                iz = int((numParamsPerSat * ctr) + niz)
+                #pco_iz = int(numParamsPerSat *ctr + numNADS )
+                pco_iz = int(numParamsPerSat * (ctr+1) -1 )
 
                 #print("Indices m,iz,pco_iz,siz:",m,iz,pco_iz,siz,i,numd)
                 # Nadir partials..
@@ -398,6 +404,7 @@ def pwlNadirSiteDailyStack(site_residuals, svs, params, nadSpacing=0.1,zenSpacin
                 # Site partials
                 Apart_4 = (1.-(data[i,2]-nsiz*zenSpacing)/zenSpacing)
                 Apart_5 = (data[i,2]-nsiz*zenSpacing)/zenSpacing
+                #print("APART {:.2f} {:.2f} {:.2f} {:.2f} {:.2f}".format(Apart_1,Apart_2,Apart_3,Apart_4,Apart_5))
                 #print("Finished forming Design matrix")
 
                 #print("Starting AtWb",np.shape(AtWb),iz,pco_iz,siz)
@@ -408,38 +415,51 @@ def pwlNadirSiteDailyStack(site_residuals, svs, params, nadSpacing=0.1,zenSpacin
                 AtWb[siz+1]  = AtWb[siz+1]  + Apart_5 * data[i,3] * w
                 #print("Finished forming b vector")
 
-                Neq[iz,iz]     = Neq[iz,iz]     + Apart_1 * Apart_1 * w
-                Neq[iz,iz+1]   = Neq[iz,iz+1]   + Apart_1 * Apart_2 * w
-                Neq[iz,pco_iz] = Neq[iz,pco_iz] + Apart_1 * Apart_3 * w
-                Neq[iz,siz]    = Neq[iz,siz]    + Apart_1 * Apart_4 * w
-                Neq[iz,siz+1]  = Neq[iz,siz+1]  + Apart_1 * Apart_5 * w
+                Neq[iz,iz]     = Neq[iz,iz]     + (Apart_1 * Apart_1 * w)
+                Neq[iz,iz+1]   = Neq[iz,iz+1]   + (Apart_1 * Apart_2 * w)
+                Neq[iz,pco_iz] = Neq[iz,pco_iz] + (Apart_1 * Apart_3 * w)
+                Neq[iz,siz]    = Neq[iz,siz]    + (Apart_1 * Apart_4 * w)
+                Neq[iz,siz+1]  = Neq[iz,siz+1]  + (Apart_1 * Apart_5 * w)
 
-                Neq[iz+1,iz]     = Neq[iz+1,iz]     + Apart_2 * Apart_1 * w
-                Neq[iz+1,iz+1]   = Neq[iz+1,iz+1]   + Apart_2 * Apart_2 * w
-                Neq[iz+1,pco_iz] = Neq[iz+1,pco_iz] + Apart_2 * Apart_3 * w
-                Neq[iz+1,siz]    = Neq[iz+1,siz]    + Apart_2 * Apart_4 * w
-                Neq[iz+1,siz+1]  = Neq[iz+1,siz+1]  + Apart_2 * Apart_5 * w
+                Neq[iz+1,iz]     = Neq[iz+1,iz]     + (Apart_2 * Apart_1 * w)
+                Neq[iz+1,iz+1]   = Neq[iz+1,iz+1]   + (Apart_2 * Apart_2 * w)
+                Neq[iz+1,pco_iz] = Neq[iz+1,pco_iz] + (Apart_2 * Apart_3 * w)
+                Neq[iz+1,siz]    = Neq[iz+1,siz]    + (Apart_2 * Apart_4 * w)
+                Neq[iz+1,siz+1]  = Neq[iz+1,siz+1]  + (Apart_2 * Apart_5 * w)
                 #print("Finished NEQ Nadir estimates")
             
-                Neq[pco_iz,iz]     = Neq[pco_iz,iz]     + Apart_3 * Apart_1 * w
-                Neq[pco_iz,iz+1]   = Neq[pco_iz,iz+1]   + Apart_3 * Apart_2 * w
-                Neq[pco_iz,pco_iz] = Neq[pco_iz,pco_iz] + Apart_3 * Apart_3 * w
-                Neq[pco_iz,siz]    = Neq[pco_iz,siz]    + Apart_3 * Apart_4 * w
-                Neq[pco_iz,siz+1]  = Neq[pco_iz,siz+1]  + Apart_3 * Apart_5 * w
+                Neq[pco_iz,iz]     = Neq[pco_iz,iz]     + (Apart_3 * Apart_1 * w)
+                Neq[pco_iz,iz+1]   = Neq[pco_iz,iz+1]   + (Apart_3 * Apart_2 * w)
+                Neq[pco_iz,pco_iz] = Neq[pco_iz,pco_iz] + (Apart_3 * Apart_3 * w)
+                Neq[pco_iz,siz]    = Neq[pco_iz,siz]    + (Apart_3 * Apart_4 * w)
+                Neq[pco_iz,siz+1]  = Neq[pco_iz,siz+1]  + (Apart_3 * Apart_5 * w)
                 #print("Finished NEQ PCO estimates")
 
-                Neq[siz,iz]     = Neq[siz,iz]     + Apart_4 * Apart_1 * w
-                Neq[siz,iz+1]   = Neq[siz,iz+1]   + Apart_4 * Apart_2 * w
-                Neq[siz,pco_iz] = Neq[siz,pco_iz] + Apart_4 * Apart_3 * w
-                Neq[siz,siz]    = Neq[siz,siz]    + Apart_4 * Apart_4 * w
-                Neq[siz,siz+1]  = Neq[siz,siz+1]  + Apart_4 * Apart_5 * w
+                Neq[siz,iz]     = Neq[siz,iz]     + (Apart_4 * Apart_1 * w)
+                Neq[siz,iz+1]   = Neq[siz,iz+1]   + (Apart_4 * Apart_2 * w)
+                Neq[siz,pco_iz] = Neq[siz,pco_iz] + (Apart_4 * Apart_3 * w)
+                Neq[siz,siz]    = Neq[siz,siz]    + (Apart_4 * Apart_4 * w)
+                Neq[siz,siz+1]  = Neq[siz,siz+1]  + (Apart_4 * Apart_5 * w)
 
-                Neq[siz+1,iz]     = Neq[siz+1,iz]     + Apart_5 * Apart_1 * w
-                Neq[siz+1,iz+1]   = Neq[siz+1,iz+1]   + Apart_5 * Apart_2 * w
-                Neq[siz+1,pco_iz] = Neq[siz+1,pco_iz] + Apart_5 * Apart_3 * w
-                Neq[siz+1,siz]    = Neq[siz+1,siz]    + Apart_5 * Apart_4 * w
-                Neq[siz+1,siz+1]  = Neq[siz+1,siz+1]  + Apart_5 * Apart_5 * w
+                Neq[siz+1,iz]     = Neq[siz+1,iz]     + (Apart_5 * Apart_1 * w)
+                Neq[siz+1,iz+1]   = Neq[siz+1,iz+1]   + (Apart_5 * Apart_2 * w)
+                Neq[siz+1,pco_iz] = Neq[siz+1,pco_iz] + (Apart_5 * Apart_3 * w)
+                Neq[siz+1,siz]    = Neq[siz+1,siz]    + (Apart_5 * Apart_4 * w)
+                Neq[siz+1,siz+1]  = Neq[siz+1,siz+1]  + (Apart_5 * Apart_5 * w)
                 #print("Finished NEQ Site estimates")
+                
+                indices = [iz, iz+1, pco_iz, siz, siz+1]
+                #print("INDICES:",indices)
+                if iz+1 == pco_iz:
+                    print("ERROR in indices iz+1 = pco_iz")
+
+                if siz == pco_iz:
+                    print("ERROR in indices siz = pco_iz")
+
+                for i in indices:
+                    for j in indices:
+                        if Neq[i,j] < 0. :
+                            print("NEGATIVE",Neq[i,j],i,j)
 
         prechi = prechi + np.dot(data[:,3].T,data[:,3])
         NUMD = NUMD + numd
@@ -461,13 +481,6 @@ def neqBySite(params,svs,args):
     print("Returned Neq, AtWb:",np.shape(Neq_tmp),np.shape(AtWb_tmp),prechi_tmp,numd_tmp)
             
     sf = params['filename']+".npz"
-    #non_zero = 0
-    #for i in range(0,np.shape(Neq_tmp)[0]):
-    #    criterion = (np.abs(Neq_tmp[:,i]) > 0.00001)
-    #    non_zero = non_zero + np.size(np.array(np.where(criterion)))
-    #Msize = np.size(Neq_tmp)
-    #density = np.float(non_zero)/np.float(Msize)
-    #print("Density of Neq:{:.3f} {:d} {:d}".format(density,non_zero,Msize))
     prechis = [prechi_tmp]
     numds = [numd_tmp]
    
@@ -505,7 +518,52 @@ def setUpTasks(cl3files,svs,opts,params):
 
     return prechi,numd
    
+def compressNeq(Neq,AtWb,svs,numParamsPerSat):
+    # check for any rows/ columns without any observations, if they are empty remove the parameters
+    satCtr = 0
+    starts = []
+    ends   = []
+    remove = []
 
+    for sv in svs:
+        non_zero = 0
+        start = satCtr * numParamsPerSat 
+        end   = (satCtr+1) * numParamsPerSat
+        ## Check how many elements have values..
+        for d in range(start,end):
+            criterion = (np.abs(Neq[d,:]) > 0.00001)
+            non_zero = non_zero + np.size(np.array(np.where(criterion))[0])
+            #print(sv,"Non_zero:",non_zero,d)
+
+        if non_zero < 1 :
+            print("No observations for:",sv)
+            starts.append(start)
+            ends.append(end)
+            remove.append(satCtr)
+
+        satCtr = satCtr + 1
+
+    # remove the satellites without any observations from the svs array
+    # Need to do it in reverse order
+    remove = np.array(remove[::-1])
+    for i in remove:
+        svs = np.delete(svs,i)
+
+    ends = np.array(ends[::-1])
+    starts = np.array(starts[::-1])
+
+    print("BEFORE Neq shape:",np.shape(Neq))
+
+    for i in range(0,np.size(ends)):
+        del_ind = range(starts[i],ends[i])
+        #del_ind = np.array(del_ind[::-1])
+        #for d in del_ind:
+        Neq = np.delete(Neq,del_ind,0)
+        Neq = np.delete(Neq,del_ind,1)
+        AtWb = np.delete(AtWb,del_ind)
+
+    print("AFTER Neq shape:",np.shape(Neq))
+    return Neq, AtWb, svs 
 #=====================================
 #
 # TODO: time filter residuals
@@ -556,12 +614,27 @@ if __name__ == "__main__":
     parser.add_argument("--edoy","--eddd",dest="edoy",type=int,default=365,help="End doy")
 
     #===================================================================
+   
+    parser.add_argument("--no_constraints",dest="apply_constraints",default=True,action='store_false',
+                            help="Dont apply constraints")
+
+    parser.add_argument("--constrain_SATPCV","--SATPCV", dest="constraint_SATPCV", 
+                         default=1.0, type=float, help="Satellite PCV constraint")
+    parser.add_argument("--constrain_SATPCO","--SATPCO", dest="constraint_SATPCO", 
+                         default=1.0 , type=float, help="Satellite PCO constraint")
+    parser.add_argument("--constrain_SATWIN","--SATWIN", dest="constraint_SATWIN", 
+                         default=0.5, type=float, help="Satellite Window constraint")
+    parser.add_argument("--constrain_SITEPCV","--SITEPCV", dest="constraint_SITEPCV", 
+                         default=10., type=float, help="Station PCV constraint")
+    parser.add_argument("--constrain_SITEWIN","--SITEWIN", dest="constraint_SITEWIN", 
+                         default=1.5, type=float, help="Station Window constraint")
+    #===================================================================
     # Plot options
     parser.add_argument('--plot',dest='plotNadir', default=False, action='store_true', help="Produce an elevation dependent plot of ESM phase residuals")
     parser.add_argument('--ps','--plot_save',dest='savePlots',default=False,action='store_true', help="Save the plots in png format")
     
     parser.add_argument('--save',dest='save_file',default=False, action='store_true',help="Save the Neq and Atwl matrices into numpy compressed format (npz)")
-    parser.add_argument('--save_solution','--ss',dest='save_solution',default='solution.pkl',help="Save the Solution vector and meta data as a pickle object, needs save_file flag to be selected")#,META="Pickle filename")
+    parser.add_argument('--save_solution','--ss',dest='solution',default='solution.pkl',help="Save the Solution vector and meta data as a pickle object, needs save_file flag to be selected")#,META="Pickle filename")
     #===================================================================
     # Debug function, not needed
     args = parser.parse_args()
@@ -707,16 +780,6 @@ if __name__ == "__main__":
                 Neq_tmp  = npzfile['neq']
                 AtWb_tmp = npzfile['atwb']
 
-                #non_zero = 0
-                ## Check how many elements have values..
-                #for i in range(0,np.shape(Neq_tmp)[0]):
-                #    criterion = (np.abs(Neq_tmp[:,i]) > 0.00001)
-                #    non_zero = non_zero + np.size(np.array(np.where(criterion)))
-
-                #Msize = np.size(Neq_tmp)
-                #density = np.float(non_zero)/np.float(Msize)
-                #print("Density of Neq:{:s} {:.3f} {:d} {:d}".format(filename,density,non_zero,Msize))
-
                 # only need one copy of the svs array, they should be eactly the same
                 if nctr == 0:
                     svs_tmp  = npzfile['svs']
@@ -756,8 +819,17 @@ if __name__ == "__main__":
                     totalSiteModels = totalSiteModels + 1
                     siteIDList.append(params[f]['site'])
 
+
             if args.save_file:
                 np.savez_compressed('consolidated.npz',neq=Neq,atwb=AtWb,svs=svs)
+
+            # remove the unwanted observations after it has been saved to disk
+            # as we may want to add to Neq together, which may have observations to satellites not seen in the Neq..
+            Neq,AtWb,svs = compressNeq(Neq,AtWb,svs,numParamsPerSat)
+            tSat = np.size(svs) * numParamsPerSat
+            numParams = tSat + tSite
+            numSVS = np.size(svs)
+            print("NumParams:",numParams)
             #=====================================================================
             # End of if not load_file or not load_path
             #=====================================================================
@@ -856,32 +928,27 @@ if __name__ == "__main__":
                     Neq[start:end,0:tSat-1] = Neq[start:end,0:tSat-1] + Neq_tmp[tmp_start:tmp_end,0:tSat-1]
                     mdlCtr = mdlCtr + 1
 
-                #non_zero = 0
-                ## Check how many elements have values..
-                #for i in range(0,np.shape(Neq_tmp)[0]):
-                #    criterion = (np.abs(Neq_tmp[:,i]) > 0.00001)
-                #    non_zero = non_zero + np.size(np.array(np.where(criterion)))
-                #Msize = np.size(Neq_tmp)
-                #density = np.float(non_zero)/np.float(Msize)
-                #print("Density of Neq:{:s} {:.3f} {:d} {:d}".format(npzfiles[n],density,non_zero,Msize))
-            #sys.exit(0) 
+            # check for any rows/ columns without any observations, if they are empty remove the parameters
+            Neq,AtWb,svs = compressNeq(Neq,AtWb,svs,numParamsPerSat)
+            tSat = np.size(svs) * numParamsPerSat
+            numParams = tSat + tSite
+            numSVS = np.size(svs)
+            print("NumParams:",numParams)
 
         if args.save_file:
             np.savez_compressed('stacked.npz',neq=Neq,atwb=AtWb,svs=svs,prechi=np.sum(prechi),numd=np.sum(numd))
         
-    if not args.save_file:
+    if args.apply_constraints:
         #========================================================================
         # Adding Constraints to the satellite parameters,
         # keep the site model free ~ 10mm  0.01 => 1/sqrt(0.01) = 10 (mm)
         # Adding 1 mm constraint to satellites
         #========================================================================
-        sPCV_constraint = 1.0
-        sPCO_constraint = 0.001
-        #sPCV_constraint = 0.0001
-        sPCV_window = 0.5     # assume the PCV variation is correlated at this degree level
-        site_constraint = 10.0
-        #site_constraint = 0.0001
-        site_window = 1.5
+        sPCV_constraint = args.constraint_SATPCV # 0.5 
+        sPCO_constraint = args.constraint_SATPCO # 1.5
+        sPCV_window     = args.constraint_SATWIN # 0.5
+        site_constraint = args.constraint_SITEPCV #10.0
+        site_window     = args.constraint_SITEWIN #1.5
 
         C = np.eye(numParams,dtype=float) * sPCV_constraint
         if args.model == 'pwlSite' or args.model == 'pwlSiteDaily' :
@@ -901,7 +968,8 @@ if __name__ == "__main__":
                         end = start + (numNADS - ind) 
                     else:
                         end = start + np.size(sPCV_corr)
-                        
+                    
+                    #print(start,end,np.shape(C),np.shape(sPCV_corr))
                     C[start,start:end] = sPCV_corr[0:(end - start)] 
                     C[start:end,start] = sPCV_corr[0:(end - start)] 
                     #C[start,(start+1):end] = C[start,(start+1):end] + sPCV_corr[1:(end - start)] 
@@ -910,7 +978,7 @@ if __name__ == "__main__":
             # Add in the satellie PCO constraints
             for s in range(0,numSVS):
                 ind = (s * numParamsPerSat) + numParamsPerSat - 1 
-                print("PCOCOnstraint",s,ind,sPCO_constraint)
+                #print("PCOCOnstraint",s,ind,sPCO_constraint)
                 C[ind,ind] = sPCO_constraint
 
             # Add in the correlation constraints for the sites PCVs
@@ -934,6 +1002,29 @@ if __name__ == "__main__":
             fig = plt.figure()
             ax = fig.add_subplot(111)
             ax.spy(Neq, precision=1e-3, marker='.', markersize=5)
+            ctr = 0
+            xlabels = []
+            xticks = []
+            for svn in svs:
+                siz = numParamsPerSat * ctr 
+                eiz = numParamsPerSat *ctr + numNADS 
+                ctr = ctr + 1
+                xlabels.append(svn)
+                tick = int((eiz-siz)/2)+siz
+                xticks.append(tick)
+        
+            for snum in range(0,totalSiteModels):
+                siz = numParamsPerSat*numSVS + snum * numParamsPerSite 
+                eiz = siz + numParamsPerSite 
+                xlabels.append(siteIDList[snum])
+                tick = int((eiz-siz)/2)+siz
+                xticks.append(tick)
+
+            ax.set_xticks(xticks)
+            ax.set_xticklabels(xlabels,rotation='vertical')
+            for item in ([ax.title, ax.xaxis.label, ax.yaxis.label] +
+                       ax.get_xticklabels() + ax.get_yticklabels()):
+                item.set_fontsize(6)
             if args.savePlots:
                 plt.savefig("NeqMatrix.png")
             plt.tight_layout()
@@ -941,48 +1032,68 @@ if __name__ == "__main__":
         # Add the parameter constraints to the Neq
         Neq = np.add(Neq,C_inv)
 
-        print("Now trying an inverse")
-        #Cov = np.linalg.pinv(Neq)
-        Cho = np.linalg.cholesky(Neq)
-        Cho_inv = np.linalg.pinv(Cho)
-        Cov = np.dot(Cho_inv.T,Cho_inv)
 
-        print("Now computing the solution")
-        Sol = np.dot(Cov,AtWb)
-        print("The solution is :",np.shape(Sol))
+    print("Now trying an inverse of Neq",np.shape(Neq))
+    Cov = np.linalg.pinv(Neq)
+    #Cho = np.linalg.cholesky(Neq)
+    #Cho_inv = np.linalg.pinv(Cho)
+    #Cov = np.dot(Cho_inv.T,Cho_inv)
 
-        prechi = np.sum(prechis)
-        numd = np.sum(numds)
-        print("Prechi, numd",prechi,numd)
+    print("Now computing the solution")
+    Sol = np.dot(Cov,AtWb)
+    print("The solution is :",np.shape(Sol))
+
+    prechi = np.sum(prechis)
+    numd = np.sum(numds)
+    #print("Prechi, numd",prechi,numd)
              
-        postchi = prechi - np.dot(np.array(AtWb).T,np.array(Sol))
-        print("STATS:",numd,np.sqrt(prechi/numd),np.sqrt(postchi/numd),np.sqrt((prechi-postchi)/numd))#,aic,bic)
+    postchi = prechi - np.dot(np.array(AtWb).T,np.array(Sol))
+    print("STATS:",numd,np.sqrt(prechi/numd),np.sqrt(postchi/numd),np.sqrt((prechi-postchi)/numd))#,aic,bic)
 
-        #=======================================================================================================
-        #
-        #       Save the solution to a pickle data structure
-        #
-        #=======================================================================================================
-        if args.save_file:
-            with open(args.solution,'wb') as pklID:
-                meta = []
-                meta['svs'] = svs
-                meta['datafiles'] = npzfiles
-                meta['numSiteModels'] = numSites 
-                meta['prechi']   = np.sqrt(prechi/numd)
-                meta['postchi']  = np.sqrt(postchi/numd)
-                meta['numd']     = numd
-                meta['chi_inc']  = np.sqrt((prechi-postchi)/numd)
-                pickle.dump(meta,pklID)
-                pickle.dump(Sol,pklID)
-                pickle.dump(Cov,pklID)
+    #=======================================================================================================
+    #
+    #       Save the solution to a pickle data structure
+    #
+    #=======================================================================================================
+    if args.save_file:
+        with open(args.solution,'wb') as pklID:
+            meta = {}
+            meta['model'] = args.model
+            meta['nadir_grid'] = args.nadir_grid
+            meta['antex_file'] = args.antex
+            meta['svnav'] = args.svnavFile
+            meta['station_info'] = args.station_file
+            meta['zenith_grid'] = args.zen
+            meta['syyyy'] = args.syyyy
+            meta['sddd']  = args.sdoy
+            meta['eyyyy'] = args.eyyyy
+            meta['eddd']  = args.edoy
+            meta['datafiles'] = npzfiles
+            meta['svs'] = svs
+            meta['numSiteModels'] = numSites 
+            meta['prechi']   = np.sqrt(prechi/numd)
+            meta['postchi']  = np.sqrt(postchi/numd)
+            meta['numd']     = numd
+            meta['chi_inc']  = np.sqrt((prechi-postchi)/numd)
+            meta['apply_constraints'] = args.apply_constraints
+            if args.apply_constraints:
+                meta['constraint_SATPCV']  = args.constraint_SATPCV # 0.5 
+                meta['constraint_SATPCO']  = args.constraint_SATPCO # 1.5
+                meta['constraint_SATWIN']  = args.constraint_SATWIN # 0.5
+                meta['constraint_SITEPCV'] = args.constraint_SITEPCV #10.0
+                meta['constraint_SITEWIN'] = args.constraint_SITEWIN #1.5
+            pickle.dump(meta,pklID,2)
+            pickle.dump(Sol,pklID)
+            pickle.dump(Cov,pklID)
+        pklID.close()            
 
     if args.plotNadir or args.savePlots:
         nad = np.linspace(0,14, int(14./args.nadir_grid)+1 )
         numParamsPerSat = int(14.0/args.nadir_grid) + 2 
 
-        variances = np.diag(Neq)
-        print("Variance:",np.shape(variances))
+        #variances = np.diag(Neq)
+        variances = np.diag(Cov)
+        #print("Variance:",np.shape(variances))
 
         #============================================
         # Plot the sparsity of the matrix Neq
@@ -1034,10 +1145,13 @@ if __name__ == "__main__":
 
             siz = numParamsPerSat * ctr 
             eiz = numParamsPerSat *ctr + numNADS 
-            
+           
+            sol = Sol[siz:eiz]
             #print("SVN:",svn,siz,eiz,numParamsPerSat,tSat)
-            ax1.plot(nad,Sol[siz:eiz],'r-',linewidth=2)
-            ax.errorbar(nad,Sol[siz:eiz],yerr=np.sqrt(variances[siz:eiz])/2.,fmt='o')
+            #ax1.plot(nad,Sol[siz:eiz],'r-',linewidth=2)
+            ax1.plot(nad,sol[::-1],'r-',linewidth=2)
+            #ax.errorbar(nad,Sol[siz:eiz],yerr=np.sqrt(variances[siz:eiz])/2.,fmt='o')
+            ax.errorbar(nad,sol[::-1],yerr=np.sqrt(variances[siz:eiz])/2.,fmt='o')
 
             #print(svn,Sol[siz:eiz],np.sqrt(variances[siz:eiz])/2.)
             ax.set_xlabel('Nadir Angle (degrees)',fontsize=8)

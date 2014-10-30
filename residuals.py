@@ -390,7 +390,10 @@ def gamitWeight(site_residuals):
     # det   - determinant of norm
     # zpart - Partial for 1/sine(el)**2
     # zdep  - A and B coefficients for the model
-
+    #vel_light = 299792458.0
+    #fL1 = 154.*10.23E6
+    #cyc_to_mm = (vel_light/fL1) *1000.
+    #print("cyc_to_mm:",cyc_to_mm)
     sums_lc = np.zeros(18)
     nums_lc = np.zeros(18)
 
@@ -401,14 +404,15 @@ def gamitWeight(site_residuals):
     # Split everything up into 17 bins
     for r in range(0,np.shape(site_residuals)[0]):
         ele_bin = int(site_residuals[r,2]/5.0)
-        sums_lc[ele_bin] = sums_lc[ele_bin] + site_residuals[r,3]**2
+        sums_lc[ele_bin] = sums_lc[ele_bin] + np.sqrt(site_residuals[r,3]**2)
         nums_lc[ele_bin] = nums_lc[ele_bin] + 1
 
     for i in range(0,18):
         if nums_lc[i] > 0:
-            sums_lc[i] = np.sqrt( sums_lc[i] / nums_lc[i] )
+            #sums_lc[i] = np.sqrt( sums_lc[i] / nums_lc[i] )#*cyc_to_mm
+            sums_lc[i] = sums_lc[i] / nums_lc[i] #*cyc_to_mm
 
-        zpart = 1. / np.sin(np.radians(i*5.0 + 2.5))**2
+        zpart = 1. / np.sin(np.radians((i+1)*5.0 - 2.5))**2
 
         # Accumulate the normals weighted by the number of data points
         if nums_lc[i] > 0 :
@@ -416,41 +420,41 @@ def gamitWeight(site_residuals):
             norm[1] = norm[1] + zpart
             norm[2] = norm[2] + zpart**2
             b[0] = b[0] + sums_lc[i]**2
-            b[1] = b[1] + zpart*sums_lc[i]**2
+            b[1] = b[1] + (zpart*sums_lc[i])**2
 
     # Now compute the determinate and solve the equations accounting
     # for both zdep(1) and zdep(2) need to be positive
     det = norm[0] * norm[2] - norm[1]**2
-    print("DET:",det,b[0],b[1],norm[0],norm[1],norm[2])
     if det > 0.:
         zdep[0] = (b[0] * norm[2] - b[1]*norm[1]) / det
         zdep[1] = (b[1] * norm[0] - b[0]*norm[1]) / det
+        #print("DET:",det,b[0],b[1],norm[0],norm[1],norm[2],zdep[0],zdep[1],zpart)
 
         # If the mean is less than zero, set it to 1 mm and use elevation angle dependence   
         if zdep[0] < 0.0 :
             zdep[0] = (zdep[0] + zdep[1])/2.
             b[1] = b[1] - norm[1]*zdep[0]
             zdep[1] = b[1]/norm[2]
-            print("1, mean is less than zero")
+            #print("1, mean is less than zero")
         # If the elevation term is zero, then just use a constant value
         if zdep[1] < 0.0 :
             zdep[0] = b[0]/norm[0]
             zdep[1] = 0.0
-            print("2,elevation term is zero, use a constan value")
+            #print("2,elevation term is zero, use a constan value")
     else:
         if norm[0] > 0:
             zdep[0] = b[0]/norm[0]
             zdep[1] = 0.0
-            print("3,blah")
+            #print("3,blah")
         else:
             zdep[0] = 10.0
             zdep[1] = 0.0
-            print("4,blah")
+            #print("4,blah")
 
     # Final check to make sure a non-zero value is given
     if zdep[0] < 0.01:
         zdep[0] = 10.0
-        print("5,blah")
+        #print("5,blah")
 
     a = np.sqrt(zdep[0])
     b = np.sqrt(zdep[1])
