@@ -604,7 +604,8 @@ if __name__ == "__main__":
     parser.add_argument('-m','--model',dest='model',choices=['pwl','pwlSite','pwlSiteDaily'], help="Create a ESM for satellites only, or for satellites and sites")
     parser.add_argument('-l','--load',dest='load_file',help="Load stored NEQ and AtWl matrices from a file")
     parser.add_argument('--lp','--lpath',dest='load_path',help="Path to search for .npz files")
-   
+    parser.add_argument('--sstk','--save_stacked_file',dest='save_stacked_file',default=False,action='store_true',help="Path to Normal equation stacked file")   
+    parser.add_argument('--stk','--stacked_file',dest='stacked_file',help="Path to Normal equation stacked file")   
     parser.add_argument('--cpu',dest='cpu',type=int,default=4,help="Maximum number of cpus to use")
     #===================================================================
 
@@ -935,9 +936,20 @@ if __name__ == "__main__":
             numSVS = np.size(svs)
             print("NumParams:",numParams)
 
-        if args.save_file:
-            np.savez_compressed('stacked.npz',neq=Neq,atwb=AtWb,svs=svs,prechi=np.sum(prechi),numd=np.sum(numd))
-        
+        if args.save_stacked_file:
+            np.savez_compressed('stacked.stk',neq=Neq,atwb=AtWb,svs=svs,prechi=prechis,numd=numds)
+
+    # check if we are parsing in a pre-stacked file
+    if args.stacked_file:
+        npzfile = np.load(npzfiles[n])
+        Neq     = npzfile['neq']
+        AtWb    = npzfile['atwb']
+        svs     = npzfile['svs']
+        prechis = npzfile['prechi']
+        numds   = npzfile['numd']
+        print("Just read in stacked file:",args.stacked_file)
+        #print("Prechi Numd:",prechi,numd) 
+
     if args.apply_constraints:
         #========================================================================
         # Adding Constraints to the satellite parameters,
@@ -1068,7 +1080,10 @@ if __name__ == "__main__":
             meta['sddd']  = args.sdoy
             meta['eyyyy'] = args.eyyyy
             meta['eddd']  = args.edoy
-            meta['datafiles'] = npzfiles
+            if args.stacked_file:
+                meta['datafiles'] = args.stacked_file 
+            else:
+                meta['datafiles'] = npzfiles
             meta['svs'] = svs
             meta['numSiteModels'] = numSites 
             meta['prechi']   = np.sqrt(prechi/numd)
@@ -1082,10 +1097,13 @@ if __name__ == "__main__":
                 meta['constraint_SATWIN']  = args.constraint_SATWIN # 0.5
                 meta['constraint_SITEPCV'] = args.constraint_SITEPCV #10.0
                 meta['constraint_SITEWIN'] = args.constraint_SITEWIN #1.5
+            meta['saved_file'] = args.solution + ".sol"
             pickle.dump(meta,pklID,2)
-            pickle.dump(Sol,pklID)
-            pickle.dump(Cov,pklID)
-        pklID.close()            
+
+            np.savez_compressed(args.solution+".sol",sol=Sol,cov=Cov)
+            #pickle.dump(Sol,pklID)
+            #pickle.dump(Cov,pklID)
+            pklID.close()            
 
     if args.plotNadir or args.savePlots:
         nad = np.linspace(0,14, int(14./args.nadir_grid)+1 )

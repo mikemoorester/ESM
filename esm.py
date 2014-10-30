@@ -1136,58 +1136,65 @@ if __name__ == "__main__":
                    ''')
 
     #===================================================================
+    # Meta data information required to create an ESM
+    #===================================================================
+    parser.add_argument('-a', '--antex', dest='antex', default="~/gg/tables/antmod.dat",help="Location of ANTEX file (default = ~/gg/tables/antmod.dat)")
+    parser.add_argument('--sf','--station_file', dest='station_file', default="~/gg/tables/station.info",help="GAMIT station file with metadata (default= ~/gg/tables/station.info)")
+    parser.add_argument('--sv','--svnav', dest="svnavFile",default="~/gg/tables/svnav.dat", help="Location of GAMIT svnav.dat")
+    parser.add_argument('-s', '--site', dest='site', required=True, help="SITE 4 character id")
+
+    #===================================================================
+    # Inputting the phase residuals options:
+    #===================================================================
+    parser.add_argument('-f', dest='resfile', default='',help="Consolidated one-way LC phase residuals")
+
+    #===================================================================
     # Consolidate DPH file options:
+    #===================================================================
     parser.add_argument('--save_file',dest='save_file',default='./',
                             help="Location to save the consolidated phase files")
     parser.add_argument('--traverse',dest='traverse',
                             help="Location to search for DPH files from")
-
     # only support yyyy_dddn? and ddd
     parser.add_argument('--network',dest='network',default='yyyy_dddnN',choices=['yyyy_dddnN','ddd'],
                             help="Format of gps subnetworks")
     #===================================================================
-    # Station meta data options
-    parser.add_argument('-s', '--site', dest='site', required=True, help="SITE 4 character id")
-    parser.add_argument('-a', '--antex', dest='antex', default="~/gg/tables/antmod.dat",help="Location of ANTEX file (default = ~/gg/tables/antmod.dat)")
-    parser.add_argument('--station_file', dest='station_file', default="~/gg/tables/station.info",help="GAMIT station file with metadata (default= ~/gg/tables/station.info)")
+    # Modelling options
+    #===================================================================
+    parser.add_argument('--model', dest='model', choices=['blkm','pwl','blkmadj'],help="Create an ESM\n (blkm = block median, pwl = piece wise linear)")
     parser.add_argument('-g', '--grid', dest='grid', default=5.,type=float,help="ANTEX grid spacing (default = 5 degrees)")
-
-    
     parser.add_argument('--esm_grid', dest='esm_grid', default=0.5, type=float,help="Grid spacing to use when creating an ESM (default = 0.5 degrees)")
-    parser.add_argument('-f', dest='resfile', default='',help="Consolidated one-way LC phase residuals")
-    #parser.add_argument('-t', '--AntType',dest='AntType')
+    # Interpolation/extrapolation options
+    # TODO: nearneighbour, polynomial, surface fit, etc..
+    parser.add_argument('-i','--interpolate',dest='interpolate',choices=['ele_mean'],
+                            help="ele_mean use the elevation mean to fill any missing values in the model")
 
     #===================================================================
     # Plot options
+    #===================================================================
     parser.add_argument('--polar',dest='polar', default=False, action='store_true', help="Produce a polar plot of the ESM phase residuals (not working in development")
     parser.add_argument('--elevation',dest='elevation', default=False, action='store_true', help="Produce an elevation dependent plot of ESM phase residuals")
     
     #===================================================================
     # Start from a consolidated CPH file of the DPH residuals 
     #parser.add_argument('--dph',dest='dphFile')
-    parser.add_argument('--model', dest='model', choices=['blkm','pwl','blkmadj'],help="Create an ESM\n (blkm = block median, pwl = piece wise linear)")
     parser.add_argument('-o','--outfile',help='filename for ESM model (default = antmod.ssss)')
 
+    #===================================================================
+    # Satellite options 
+    #===================================================================
     parser.add_argument('--nadir',dest='nadir',help="location of satellite nadir residuals SV_RESIDUALS.ND3")
     parser.add_argument('--nm','--nadirModel',dest='nadirModel',default=False,action='store_true',
                         help="Create an ESM model for the satellites")
-
     parser.add_argument('--nadirPlot',dest='nadirPlot',default=False,action='store_true',help="Plot nadir residuals")
     parser.add_argument('--nadirCorrection',dest='nadirCorrection',default=False,action='store_true',help="Apply the satellite Nadir correction to the phase residuals")
 
     parser.add_argument('--store',dest='store',default=False,action='store_true',
             help='Store the partials Neq and AtWl as a numpy binary file')
 
-    parser.add_argument('--test',dest='test',default=False,action='store_true')
-    # Interpolation/extrapolation options
-    # TODO: nearneighbour, polynomial, surface fit, etc..
-    parser.add_argument('-i','--interpolate',dest='interpolate',choices=['ele_mean'],
-                            help="ele_mean use the elevation mean to fill any missing values in the model")
     #===================================================================
-    # Debug function, not needed
-    #parser.add_argument('--gmt',dest='gmt_file',help="Debug function not implemented, use a GMT fit of residuals")
-    parser.add_argument('--sv','--svnav', dest="svnavFile",default="~/gg/tables/svnav.dat", help="Location of GAMIT svnav.dat")
     args = parser.parse_args()
+    #===================================================================
 
     # expand any home directory paths (~) to the full path, otherwise python won't find the file
     if args.resfile : args.resfile = os.path.expanduser(args.resfile)
@@ -1201,10 +1208,6 @@ if __name__ == "__main__":
     # Look through the GAMIT processing subdirectories for DPH files 
     # belonging to a particular site.
     #===================================================================
-    if args.test:
-        ele = np.linspace(0,90,10)
-        nad = calcNadirAngle(ele)
-        print(ele,nad)
     if args.traverse :
         traverse_directory(args)
         if args.model:
@@ -1264,36 +1267,6 @@ if __name__ == "__main__":
             plt.tight_layout()
             title = svnav.blockType(7)
             plt.savefig(title+".eps")
-
-
-            #for i in range(0,7):
-            #    figTmp = plt.figure(figsize=(3.62, 2.76))
-            #    figBLK.append(figTmp)
-            #    axTmp  = figBLK[i].add_subplot(111)
-            #    axBLK.append(axTmp)
-
-            # tidy each plot up
-            #for i in range(0,7):
-            #    axBLK[i].set_xlabel('Nadir Angle (degrees)',fontsize=8)
-            #    axBLK[i].set_ylabel('Residual (mm)',fontsize=8)
-            #    axBLK[i].set_xlim([0, 14])
-            #    axBLK[i].set_ylim([-5,5])
-            #    axBLK[i].legend(fontsize=8,ncol=3)
-            #    title = svnav.blockType(i+1)
-            #    axBLK[i].set_title(title,fontsize=8)
-            #    for item in ([axBLK[i].title, axBLK[i].xaxis.label, axBLK[i].yaxis.label] +
-            #        axBLK[i].get_xticklabels() + axBLK[i].get_yticklabels()):
-            #        item.set_fontsize(8)
-            #    #axBLK[i].tight_layout() 
-            #    plt.tight_layout()
-            #    axBLK[i].
-            #    plt.savefig(title+".eps")
-                
-            #ax1 = nadirPlot(ax1,svnav,1)
-            #title = svnav.blockType(1)
-            #plt.tight_layout()
-            #plt.savefig(title+".eps")
-
 
             # Do a plot of all the satellites now..
             fig = plt.figure(figsize=(3.62, 2.76))
