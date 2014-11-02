@@ -1,8 +1,8 @@
 #!/usr/bin/env python
 from __future__ import division, print_function, absolute_import
 
-import matplotlib
-matplotlib.use('Agg')
+#import matplotlib
+#matplotlib.use('Agg')
 
 import numpy as np
 import re
@@ -17,7 +17,10 @@ import antenna as ant
 import residuals as res
 import gpsTime as gt
 import GamitStationFile as gsf
+import GamitAprioriFile as gapr
 import svnav
+import broadcastNavigation as brdc
+import Navigation as rnxN
 
 def satelliteModel(antenna,nadirData):
     #assuming a 14 model at 1 deg intervals
@@ -34,12 +37,19 @@ def satelliteModel(antenna,nadirData):
 
     return antenna 
 
-def calcNadirAngle(ele):
+def calcNadirAngle(ele,R=6378.0,r=26378.0):
     """
         Calculate the NADIR angle based on the station's elevation angle
 
+        nadiar_angle = calNadirAngle(elevation,R,r)
+
+        elevation = elevation of satellite being observed
+        R         = geocentric disatnce of station (default = 6378.0)
+        r         = geocentric distance of satellite (default = 26378.0)
+
     """
-    nadeg = np.arcsin(6378.0/26378.0 * np.cos(ele/180.*np.pi)) * 180./np.pi
+    #nadeg = np.arcsin(6378.0/26378.0 * np.cos(ele/180.*np.pi)) * 180./np.pi
+    nadeg = np.degrees(np.arcsin(R/r * np.sin(np.radians(90.-ele)))) # * 180./np.pi
     return nadeg
 
 def pwl(site_residuals, svs, nadSpacing=0.1,):
@@ -269,7 +279,7 @@ def pwlNadirSite(site_residuals, svs, params, nadSpacing=0.1,zenSpacing=0.5):
     print("Normal finish of pwlNadirSite",prechi,numd)
     return Neq, AtWb, prechi, numd
 
-def pwlNadirSiteDailyStack(site_residuals, svs, params, nadSpacing=0.1,zenSpacing=0.5):
+def pwlNadirSiteDailyStack(site_residuals, svs, params, nadSpacing=0.1,zenSpacing=0.5,brdc_dir="./"):
     """
     Create a model for the satellites and sites at the same time.
     PWL piece-wise-linear interpolation fit of phase residuals
@@ -341,10 +351,12 @@ def pwlNadirSiteDailyStack(site_residuals, svs, params, nadSpacing=0.1,zenSpacin
             lookup_svs[str(sv)] = ctr
             ctr+=1
 
+        site_geocentric_distance = np.linalg.norm(params['sitepos'])
+
         for d in range(0,numDays):
             minDTO = minVal_dt + dt.timedelta(days = d)
             maxDTO = minVal_dt + dt.timedelta(days = d+1)
-            print(d,"Stacking residuals on:",minDTO,maxDTO)
+            #print(d,"Stacking residuals on:",minDTO,maxDTO)
             criterion = ( ( model_residuals[:,0] >= calendar.timegm(minDTO.utctimetuple()) ) &
                           ( model_residuals[:,0] < calendar.timegm(maxDTO.utctimetuple()) ) )
             tind = np.array(np.where(criterion))[0]
@@ -352,59 +364,77 @@ def pwlNadirSiteDailyStack(site_residuals, svs, params, nadSpacing=0.1,zenSpacin
             if np.size(tind) < 300:
                 continue
 
-            print("rejecting any residuals greater than 100mm",np.shape(site_residuals))
+            #print("rejecting any residuals greater than 100mm",np.shape(site_residuals))
             tdata = res.reject_absVal(model_residuals[tind,:],100.)
-            #if m >= (int(params['numModels']) -1 ):
-            #    del site_residuals
 
             #print("rejecting any residuals greater than 5 sigma",np.shape(tdata))
             data = res.reject_outliers_elevation(tdata,5,0.5)
-            print("finished outlier detection",np.shape(data))
+            #print("finished outlier detection",np.shape(data))
             del tdata
 
             # determine the elevation dependent weighting
             a,b = res.gamitWeight(data)
             print("Gamit Weighting:",d,a,b)
 
+            # parse the broadcast navigation file for this day to get an accurate
+            # nadir angle
+            year = minDTO.strftime("%Y") 
+            yy = minDTO.strftime("%y") 
+            doy = minDTO.strftime("%j") 
+            navfile = brdc_dir + 'brdc'+ doy +'0.'+ yy +'n'
+            print("Will read in the broadcast navigation file:",navfile)
+            nav = rnxN.parseFile(navfile)
+
             # Get the total number of observations for this site
             numd = np.shape(data)[0]
             #print("Have:",numd,"observations")
             for i in range(0,numd):
+                # work out the svn number
+                svndto =  gt.unix2dt(data[i,0])
+                svn = svnav.findSV_DTO(svdat,data[i,4],svndto)
+                svn_search = 'G{:03d}'.format(svn) 
+                ctr = lookup_svs[str(svn_search)]
+
+                # get the satellite position
+                svnpos = rnxN.satpos(data[i,4],svndto,nav)
+                satnorm = np.linalg.norm(svnpos[0])
+                #print("SVNPOS:",svnpos[0],"NORM:",np.linalg.norm(svnpos[0]))
+
                 # work out the nadir angle
-                nadir = calcNadirAngle(data[i,2])
+                oldnadir = calcNadirAngle(data[i,2])
+                nadir = calcNadirAngle(data[i,2],site_geocentric_distance,satnorm)
+                #print("Ele {:.2f} Old: {:.2f} New:{:.2f}".format(data[i,2],oldnadir,nadir))
                 niz = int(np.floor(nadir/nadSpacing))
                 nsiz = int(np.floor(data[i,2]/zenSpacing))
                 #print("NADIR:",nadir,niz,data[i,2],nsiz)
                 siz = int( tSat +  m*numParamsPerSite + nsiz)
 
-                # work out the svn number
-                svndto =  gt.unix2dt(data[i,0])
-                svn = svnav.findSV_DTO(svdat,data[i,4],svndto)
-                svn_search = 'G{:03d}'.format(svn) 
-                #ctr = 0
-                #for sv in svs:
-                #    if sv == svn_search:
-                #        break
-                #    ctr+=1
-                ctr = lookup_svs[str(svn_search)]
                 #w = 1./ np.sin(np.radians(data[i,2])) **2
                 w = a**2 + b**2/np.sin(np.radians(data[i,2]))**2
                 #print("Ele, W:",data[i,2],w,np.sqrt(w))
                 w = 1./w
                 iz = int((numParamsPerSat * ctr) + niz)
-                #pco_iz = int(numParamsPerSat *ctr + numNADS )
-                pco_iz = int(numParamsPerSat * (ctr+1) -1 )
+                pco_iz = int(numParamsPerSat *ctr + numNADS )
+                #pco_iz = int(numParamsPerSat * (ctr+1) -1 )
 
                 #print("Indices m,iz,pco_iz,siz:",m,iz,pco_iz,siz,i,numd)
                 # Nadir partials..
                 Apart_1 = (1.-(nadir-niz*nadSpacing)/nadSpacing)
                 Apart_2 = (nadir-niz*nadSpacing)/nadSpacing
                 # PCO partial ...
-                Apart_3 = 1./np.sin(np.radians(nadir)) 
+                # soln 1
+                ##Apart_3 = 1./np.sin(np.radians(nadir)) 
+                #
+                # soln 2
+                #Apart_3 = -1./np.sin(np.radians(nadir)) 
+                # soln 3
+                #Apart_3 = np.sin(np.radians(nadir)) 
+                #
+                # soln4
+                Apart_3 = -np.sin(np.radians(nadir)) 
                 # Site partials
                 Apart_4 = (1.-(data[i,2]-nsiz*zenSpacing)/zenSpacing)
                 Apart_5 = (data[i,2]-nsiz*zenSpacing)/zenSpacing
-                #print("APART {:.2f} {:.2f} {:.2f} {:.2f} {:.2f}".format(Apart_1,Apart_2,Apart_3,Apart_4,Apart_5))
                 #print("Finished forming Design matrix")
 
                 #print("Starting AtWb",np.shape(AtWb),iz,pco_iz,siz)
@@ -456,10 +486,10 @@ def pwlNadirSiteDailyStack(site_residuals, svs, params, nadSpacing=0.1,zenSpacin
                 if siz == pco_iz:
                     print("ERROR in indices siz = pco_iz")
 
-                for i in indices:
-                    for j in indices:
-                        if Neq[i,j] < 0. :
-                            print("NEGATIVE",Neq[i,j],i,j)
+                #for i in indices:
+                #    for j in indices:
+                #        if Neq[i,j] < 0. :
+                #            print("NEGATIVE",Neq[i,j],i,j)
 
         prechi = prechi + np.dot(data[:,3].T,data[:,3])
         NUMD = NUMD + numd
@@ -476,7 +506,7 @@ def neqBySite(params,svs,args):
         Neq_tmp,AtWb_tmp,prechi_tmp,numd_tmp = pwlNadirSite(site_residuals,svs,params,args.nadir_grid,0.5)
     elif args.model == 'pwlSiteDaily':
         print("Attempting a stack on each day")
-        Neq_tmp,AtWb_tmp,prechi_tmp,numd_tmp = pwlNadirSiteDailyStack(site_residuals,svs,params,args.nadir_grid,0.5)
+        Neq_tmp,AtWb_tmp,prechi_tmp,numd_tmp = pwlNadirSiteDailyStack(site_residuals,svs,params,args.nadir_grid,0.5,args.brdc_dir)
 
     print("Returned Neq, AtWb:",np.shape(Neq_tmp),np.shape(AtWb_tmp),prechi_tmp,numd_tmp)
             
@@ -567,9 +597,6 @@ def compressNeq(Neq,AtWb,svs,numParamsPerSat):
 #=====================================
 #
 # TODO: time filter residuals
-#       check station constraints --> no variance in areas of no observations
-#       run through station file to check how many sitemodels need to be created
-#       put in elevation dependent weighting
 #
 #=====================================
 if __name__ == "__main__":
@@ -592,7 +619,8 @@ if __name__ == "__main__":
     parser.add_argument('-a', '--antex', dest='antex', default="~/gg/tables/antmod.dat",help="Location of ANTEX file (default = ~/gg/tables/antmod.dat)")
     parser.add_argument('--sv','--svnav', dest="svnavFile",default="~/gg/tables/svnav.dat", help="Location of GAMIT svnav.dat")
     parser.add_argument('--sf','--station_file', dest="station_file",default="~/gg/tables/station.info", help="Location of GAMIT station.info")
-
+    parser.add_argument('--brdc',dest='brdc_dir',default="~/gg/brdc/",help="Location of broadcast navigation files")
+    parser.add_argument('--apr',dest='apr_file',default="~/gg/tables/itrf08_comb.apr", help="Location of Apriori File containing the stations position")
     parser.add_argument('--parse_only',dest='parse_only',action='store_true',default=False,help="parse the cl3 file and save the normal equations to a file (*.npz)") 
     parser.add_argument('--nadir_grid', dest='nadir_grid', default=0.1, type=float,help="Grid spacing to model NADIR corrections (default = 0.1 degrees)")
     parser.add_argument('--zenith_grid', dest='zen', default=0.5, type=float,help="Grid spacing to model Site corrections (default = 0.5 degrees)")
@@ -618,7 +646,8 @@ if __name__ == "__main__":
    
     parser.add_argument("--no_constraints",dest="apply_constraints",default=True,action='store_false',
                             help="Dont apply constraints")
-
+    parser.add_argument("--nwc","--no_window_contraints",dest="window_constraint",default=True,action='store_false',
+                            help="Do not apply a window constraint")
     parser.add_argument("--constrain_SATPCV","--SATPCV", dest="constraint_SATPCV", 
                          default=1.0, type=float, help="Satellite PCV constraint")
     parser.add_argument("--constrain_SATPCO","--SATPCO", dest="constraint_SATPCO", 
@@ -652,7 +681,9 @@ if __name__ == "__main__":
     args.antex = os.path.expanduser(args.antex)
     args.svnavFile = os.path.expanduser(args.svnavFile)
     args.station_file = os.path.expanduser(args.station_file)
-    
+    args.brdc_dir = os.path.expanduser(args.brdc_dir) 
+    args.apr_file = os.path.expanduser(args.apr_file) 
+
     svdat = []
     nadirData = {}
     cl3files = []
@@ -663,6 +694,7 @@ if __name__ == "__main__":
     prechis = []
     numds = []
 
+    numParams = 0
     prechi = 0
     numd = 0
 
@@ -672,6 +704,7 @@ if __name__ == "__main__":
         antennas = ant.parseANTEX(args.antex)
 
         if args.resfile :
+            print("Reading in:", args.resfile)
             cl3files.append(args.resfile)
             siteIDList.append(os.path.basename(args.resfile)[0:4]+"_model_1")
         elif args.path:
@@ -722,6 +755,7 @@ if __name__ == "__main__":
                 siteID = filename[0:4]
                 sdata = gsf.parseSite(args.station_file,siteID.upper())
                 changes = gsf.determineESMChanges(dt_start,dt_stop,sdata)
+                sitepos = gapr.getStationPos(args.apr_file,siteID)
                 numModels = numModels + np.size(changes['ind']) + 1
                 info = {}
                 info['filename']  = cl3files[f]
@@ -729,6 +763,7 @@ if __name__ == "__main__":
                 info['site']      = siteID
                 info['numModels'] = np.size(changes['ind']) + 1 
                 info['changes']   = changes
+                info['sitepos']   = sitepos
                 params.append(info)
 
             # Read in the residual files and create the normal equations
@@ -937,7 +972,7 @@ if __name__ == "__main__":
             print("NumParams:",numParams)
 
         if args.save_stacked_file:
-            np.savez_compressed('stacked.stk',neq=Neq,atwb=AtWb,svs=svs,prechi=prechis,numd=numds)
+            np.savez_compressed('stacked.npz',neq=Neq,atwb=AtWb,svs=svs,prechi=prechis,numd=numds)
 
     # check if we are parsing in a pre-stacked file
     if args.stacked_file:
@@ -956,13 +991,15 @@ if __name__ == "__main__":
         # keep the site model free ~ 10mm  0.01 => 1/sqrt(0.01) = 10 (mm)
         # Adding 1 mm constraint to satellites
         #========================================================================
-        sPCV_constraint = args.constraint_SATPCV # 0.5 
-        sPCO_constraint = args.constraint_SATPCO # 1.5
-        sPCV_window     = args.constraint_SATWIN # 0.5
-        site_constraint = args.constraint_SITEPCV #10.0
-        site_window     = args.constraint_SITEWIN #1.5
+        sPCV_constraint = args.constraint_SATPCV **2  # 0.5 
+        sPCO_constraint = args.constraint_SATPCO **2  # 1.5
+        sPCV_window     = args.constraint_SATWIN      # 0.5
+        site_constraint = args.constraint_SITEPCV **2 #10.0
+        site_window     = args.constraint_SITEWIN     #1.5
 
         C = np.eye(numParams,dtype=float) * sPCV_constraint
+
+        # Add in the Site constraints
         if args.model == 'pwlSite' or args.model == 'pwlSiteDaily' :
             for sitr in range(0,tSite):
                 spar = tSat + sitr
@@ -973,19 +1010,20 @@ if __name__ == "__main__":
             site_corr = np.linspace(site_constraint, 0., int(site_window/args.zen))
 
             # Add in the correlation constraints for the satellite PCVs
-            for s in range(0,numSVS):
-                for ind in range(0,numNADS ):
-                    start = (s * numParamsPerSat) + ind
-                    if ind > (numNADS - np.size(sPCV_corr)):
-                        end = start + (numNADS - ind) 
-                    else:
-                        end = start + np.size(sPCV_corr)
+            if args.window_constraint:
+                for s in range(0,numSVS):
+                    for ind in range(0,numNADS ):
+                        start = (s * numParamsPerSat) + ind
+                        if ind > (numNADS - np.size(sPCV_corr)):
+                            end = start + (numNADS - ind) 
+                        else:
+                            end = start + np.size(sPCV_corr)
                     
-                    #print(start,end,np.shape(C),np.shape(sPCV_corr))
-                    C[start,start:end] = sPCV_corr[0:(end - start)] 
-                    C[start:end,start] = sPCV_corr[0:(end - start)] 
-                    #C[start,(start+1):end] = C[start,(start+1):end] + sPCV_corr[1:(end - start)] 
-                    #C[(start+1):end,start] = C[(start+1):end,start] + sPCV_corr[1:(end - start)] 
+                        #print(start,end,np.shape(C),np.shape(sPCV_corr))
+                        C[start,start:end] = sPCV_corr[0:(end - start)] 
+                        C[start:end,start] = sPCV_corr[0:(end - start)] 
+                        #C[start,(start+1):end] = C[start,(start+1):end] + sPCV_corr[1:(end - start)] 
+                        #C[(start+1):end,start] = C[(start+1):end,start] + sPCV_corr[1:(end - start)] 
 
             # Add in the satellie PCO constraints
             for s in range(0,numSVS):
@@ -993,17 +1031,19 @@ if __name__ == "__main__":
                 #print("PCOCOnstraint",s,ind,sPCO_constraint)
                 C[ind,ind] = sPCO_constraint
 
-            # Add in the correlation constraints for the sites PCVs
-            for s in range(0,numSites):
-                for ind in range(0,numParamsPerSite-np.size(site_corr) ):
-                    start = tSat + (s * numParamsPerSite) + ind
-                    if ind > (numParamsPerSite - np.size(site_corr)):
-                        end = start + (numParamsPerSite - ind) 
-                    else:
-                        end = start + np.size(site_corr)
-            #            
-                    C[start,start:end] = site_corr[0:(end - start)] 
-                    C[start:end,start] = site_corr[0:(end - start)] 
+            if args.window_constraint:
+                # Add in the correlation constraints for the sites PCVs
+                for s in range(0,numSites):
+                    #for ind in range(0,numParamsPerSite-np.size(site_corr) ):
+                    for ind in range(0,numParamsPerSite ):
+                        start = tSat + (s * numParamsPerSite) + ind
+                        if ind > (numParamsPerSite - np.size(site_corr)):
+                            end = start + (numParamsPerSite - ind) 
+                        else:
+                            end = start + np.size(site_corr)
+                        
+                        C[start,start:end] = site_corr[0:(end - start)] 
+                        C[start:end,start] = site_corr[0:(end - start)] 
 
         C_inv = np.linalg.pinv(C)
         del C
@@ -1086,6 +1126,7 @@ if __name__ == "__main__":
                 meta['datafiles'] = npzfiles
             meta['svs'] = svs
             meta['numSiteModels'] = numSites 
+            meta['siteIDList']  = siteIDList
             meta['prechi']   = np.sqrt(prechi/numd)
             meta['postchi']  = np.sqrt(postchi/numd)
             meta['numd']     = numd

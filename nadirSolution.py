@@ -35,7 +35,10 @@ if __name__ == "__main__":
     #===================================================================
     # Plot options
     parser.add_argument('--plot',dest='plot', default=False, action='store_true', help="Produce an elevation dependent plot of ESM phase residuals")
-    parser.add_argument('--ps','--plot_save',dest='savePlots',default=False,action='store_true', help="Save the plots in png format")
+    parser.add_argument('--satPCO',dest='satPCO', default=False, action='store_true', help="Plot the PCO estimates")
+    parser.add_argument('--satPCV',dest='satPCV', default=False, action='store_true', help="Plot the sat PCV estimates")
+    parser.add_argument('--sitePCV',dest='sitePCV', default=False, action='store_true', help="Plot the site PCV estimates")
+    parser.add_argument('--ps','--plot_save',dest='plot_save',default=False,action='store_true', help="Save the plots in png format")
     parser.add_argument('--about','-a',dest='about',default=False,action='store_true',help="Print meta data from solution file then exit")    
     # Debug function, not needed
     args = parser.parse_args()
@@ -69,6 +72,7 @@ if __name__ == "__main__":
         #meta['datafiles'] = npzfiles
         #meta['svs'] = svs
         #meta['numSiteModels'] = numSites 
+        #meta['siteIDList']  = siteIDList
         #meta['prechi']   = np.sqrt(prechi/numd)
         #meta['postchi']  = np.sqrt(postchi/numd)
         #meta['numd']     = numd
@@ -85,128 +89,103 @@ if __name__ == "__main__":
     numParamsPerSat = int(14.0/meta['nadir_grid']) + 2 
 
     variances = np.diag(Cov)
-    #print("Variance:",np.shape(variances))
 
-        
-#   for snum in range(0,totalSiteModels):
-#       siz = numParamsPerSat*numSVS + snum * numParamsPerSite 
-#       eiz = siz + numParamsPerSite 
+    #============================================
+    # Plot the SVN stacked residuals/correction
+    #============================================
+    if args.satPCV or args.plot or args.plot_save:
+        ctr = 0
+        for svn in meta['svs']:
+            #fig = plt.figure(figsize=(3.62, 2.76))
+            fig = plt.figure()
+            fig.canvas.set_window_title("SVN_"+svn+"_nadirCorrectionModel.png")
+            ax = fig.add_subplot(111)
 
-#   #============================================
-#   # Plot the SVN stacked residuals/correction
-#   #============================================
-    ctr = 0
-    for svn in meta['svs']:
-        #fig = plt.figure(figsize=(3.62, 2.76))
-        fig = plt.figure()
-        fig.canvas.set_window_title("SVN_"+svn+"_nadirCorrectionModel.png")
-        ax = fig.add_subplot(212)
-        ax1 = fig.add_subplot(211)
-
-        siz = numParamsPerSat * ctr 
-        eiz = (numParamsPerSat * (ctr+1)) - 1
+            siz = numParamsPerSat * ctr 
+            eiz = (numParamsPerSat * (ctr+1)) - 1
            
-        sol = Sol[siz:eiz]
-        #print("SVN:",svn,siz,eiz,numParamsPerSat,tSat)
-        #ax1.plot(nad,Sol[siz:eiz],'r-',linewidth=2)
-        ax1.plot(nad,sol[::-1],'r-',linewidth=2)
-        #ax.errorbar(nad,Sol[siz:eiz],yerr=np.sqrt(variances[siz:eiz])/2.,fmt='o')
-        ax.errorbar(nad,sol[::-1],yerr=np.sqrt(variances[siz:eiz])/2.,fmt='o')
+            sol = Sol[siz:eiz]
+            ax.errorbar(nad,sol[::-1],yerr=np.sqrt(variances[siz:eiz])/2.,fmt='o')
 
-        #print(svn,Sol[siz:eiz],np.sqrt(variances[siz:eiz])/2.)
-        ax.set_xlabel('Nadir Angle (degrees)',fontsize=8)
-        ax.set_ylabel('Phase Residuals (mm)',fontsize=8)
-        #ax.set_xlim([0, 14])
+            ax.set_xlabel('Nadir Angle (degrees)',fontsize=8)
+            ax.set_ylabel('Phase Residuals (mm)',fontsize=8)
+            ax.set_ylim([-4, 4])
 
-        for item in ([ax.title, ax.xaxis.label, ax.yaxis.label] +
+            for item in ([ax.title, ax.xaxis.label, ax.yaxis.label] +
                    ax.get_xticklabels() + ax.get_yticklabels()):
-            item.set_fontsize(8)
-
-        plt.tight_layout()
-
-        for item in ([ax1.title, ax1.xaxis.label, ax1.yaxis.label] +
-                   ax1.get_xticklabels() + ax1.get_yticklabels()):
                 item.set_fontsize(8)
 
-        plt.tight_layout()
-        if args.savePlots:
-            plt.savefig("SVN_"+svn+"_nadirCorrectionModel.png")
-        ctr += 1
+            plt.tight_layout()
+
+            if args.plot_save:
+                plt.savefig("SVN_"+svn+"_nadirCorrectionModel.png")
+            ctr += 1
             
-        #if ctr > 2:
-        #    break
-
     #==================================================
-    #fig = plt.figure(figsize=(3.62, 2.76))
-    fig = plt.figure()
-    fig.canvas.set_window_title("PCO_correction.png")
-    ax = fig.add_subplot(212)
-    ax1 = fig.add_subplot(211)
-    ctr = 0
-    #numSVS = np.size(svs)
-    for svn in meta['svs']:
-        eiz = numParamsPerSat *(ctr+1) -1 
-        ax1.plot(ctr,Sol[eiz],'k.',linewidth=2)
-        ax.errorbar(ctr,Sol[eiz],yerr=np.sqrt(variances[eiz])/2.,fmt='o')
-        ctr += 1
+    if args.satPCO or args.plot_save or args.plot:
+        #fig = plt.figure(figsize=(3.62, 2.76))
+        fig = plt.figure()
+        fig.canvas.set_window_title("PCO_correction.png")
+        ax = fig.add_subplot(111)
+        ctr = 1
+        xlabels = []
+        xticks = []
+        for svn in meta['svs']:
+            eiz = (numParamsPerSat *ctr) -1 
+            ax.errorbar(ctr,Sol[eiz],yerr=np.sqrt(variances[eiz])/2.,fmt='o')
+            xlabels.append(svn)
+            xticks.append(ctr)
+            ctr += 1
 
-    ax.set_xlabel('SVN',fontsize=8)
-    ax.set_ylabel('Adjustment to PCO (mm)',fontsize=8)
+        ax.set_xlabel('SVN',fontsize=8)
+        ax.set_ylabel('Adjustment to PCO (mm)',fontsize=8)
+        ax.set_xticks(xticks)
+        ax.set_xticklabels(xlabels,rotation='vertical')
 
-    for item in ([ax.title, ax.xaxis.label, ax.yaxis.label] +
+        for item in ([ax.title, ax.xaxis.label, ax.yaxis.label] +
                ax.get_xticklabels() + ax.get_yticklabels()):
-        item.set_fontsize(8)
-    plt.tight_layout()
+            item.set_fontsize(8)
+        plt.tight_layout()
 
-    for item in ([ax1.title, ax1.xaxis.label, ax1.yaxis.label] +
-               ax1.get_xticklabels() + ax1.get_yticklabels()):
-        item.set_fontsize(8)
-    plt.tight_layout()
+        if args.plot_save:
+            plt.savefig("PCO_correction.png")
 
-    if args.savePlots:
-        plt.savefig("PCO_correction.png")
+    if args.sitePCV or args.plot or args.plot_save:
+        ctr = 0
+        numSVS = np.size(meta['svs'])
+        numNADS = int(14.0/meta['nadir_grid']) + 1 
+        numParamsPerSat = numNADS + 1
+        totalSiteModels = meta['numSiteModels']
+        numParamsPerSite = int(90./meta['zenith_grid']) + 1
+        numParams = numSVS * (numParamsPerSat) + numParamsPerSite * totalSiteModels 
 
-    plt.show()
-#       #==================================================
-#       if args.model == 'pwlSite' or args.model == 'pwlSiteDaily':
-#           ctr = 0
-#           numSVS = np.size(svs)
-#           numNADS = int(14.0/args.nadir_grid) + 1 
-#           numParamsPerSat = numNADS + PCOEstimates
-#           print("Number of Params per Sat:",numParamsPerSat,"numNads",numNADS,"Sol",np.shape(Sol),"TotalSites:",totalSiteModels)
-#           numParams = numSVS * (numParamsPerSat) + numParamsPerSite * totalSiteModels 
-#           for snum in range(0,totalSiteModels):
-#               #fig = plt.figure(figsize=(3.62, 2.76))
-#               fig = plt.figure()
-#               fig.canvas.set_window_title(siteIDList[snum]+"_elevation_model.png")
-#               ax = fig.add_subplot(212)
-#               ax1 = fig.add_subplot(211)
-#               siz = numParamsPerSat*numSVS + snum * numParamsPerSite 
-#               eiz = siz + numParamsPerSite 
-#               ele = np.linspace(0,90,numParamsPerSite)
-#               #print("Sol",np.shape(Sol),"siz  ",siz,eiz)
-#               ax1.plot(ele,Sol[siz:eiz],'k.',linewidth=2)
-#               ax.errorbar(ele,Sol[siz:eiz],yerr=np.sqrt(variances[siz:eiz])/2.,fmt='o')
-#               #print(svn,Sol[siz:eiz],np.sqrt(variances[siz:eiz])/2.)
+        for snum in range(0,totalSiteModels):
+            fig = plt.figure(figsize=(3.62, 2.76))
+            fig.canvas.set_window_title(meta['siteIDList'][snum]+"_elevation_model.png")
+            ax = fig.add_subplot(111)
 
-#               ax.set_xlabel('Zenith Angle',fontsize=8)
-#               ax.set_ylabel('Adjustment to PCV (mm)',fontsize=8)
-#               #ax.set_xlim([0, 14])
+            siz = numParamsPerSat*numSVS + snum * numParamsPerSite 
+            eiz = siz + numParamsPerSite 
+            print("plotting: ",meta['siteIDList'][snum],snum,np.shape(Sol),siz,eiz)
 
-#               for item in ([ax1.title, ax1.xaxis.label, ax1.yaxis.label] +
-#                               ax1.get_xticklabels() + ax1.get_yticklabels()):
-#                   item.set_fontsize(8)
-#               plt.tight_layout()
+            ele = np.linspace(0,90,numParamsPerSite)
+            ax.errorbar(ele,Sol[siz:eiz],yerr=np.sqrt(variances[siz:eiz])/2.)
 
-#               for item in ([ax.title, ax.xaxis.label, ax.yaxis.label] +
-#                   ax.get_xticklabels() + ax.get_yticklabels()):
-#                   item.set_fontsize(8)
+            ax.set_xlabel('Zenith Angle',fontsize=8)
+            ax.set_ylabel('Adjustment to PCV (mm)',fontsize=8)
+            ax.set_xlim([0,90])
 
-#               plt.tight_layout()
-#               if args.savePlots:
-#                   plt.savefig(siteIDList[snum]+"_elevation_model.png")
-#               
-#       if args.plot:
-#           plt.show()
+            for item in ([ax.title, ax.xaxis.label, ax.yaxis.label] +
+                ax.get_xticklabels() + ax.get_yticklabels()):
+                item.set_fontsize(8)
+
+            plt.tight_layout()
+            if args.plot_save:
+                plt.savefig(siteIDList[snum]+"_elevation_model.png")
+
+    del Cov,Sol 
+
+    if args.plot or args.sitePCV or args.satPCO or args.satPCV:
+        plt.show()
 
     print("FINISHED")
