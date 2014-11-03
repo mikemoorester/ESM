@@ -322,6 +322,9 @@ def pwlNadirSiteDailyStack(site_residuals, svs, params, nadSpacing=0.1,zenSpacin
     AtWb = np.zeros(numParams)
     change = params['changes']
 
+    # keep trck of how may observations ar ein each bin
+    NadirFreq = np.zeros((numSVS,numNADS))
+
     for m in range(0,int(params['numModels'])):
         print(params['site'],"----> creating model",m+1,"of",params['numModels'])
 
@@ -345,11 +348,12 @@ def pwlNadirSiteDailyStack(site_residuals, svs, params, nadSpacing=0.1,zenSpacin
         numDays = diff_dt.days + 1
         print("Have a total of",numDays,"days")
 
+        # set up a lookup dictionary
         lookup_svs = {}
-        ctr = 0
+        lctr = 0
         for sv in svs:
-            lookup_svs[str(sv)] = ctr
-            ctr+=1
+            lookup_svs[str(sv)] = lctr
+            lctr+=1
 
         site_geocentric_distance = np.linalg.norm(params['sitepos'])
 
@@ -361,6 +365,7 @@ def pwlNadirSiteDailyStack(site_residuals, svs, params, nadSpacing=0.1,zenSpacin
                           ( model_residuals[:,0] < calendar.timegm(maxDTO.utctimetuple()) ) )
             tind = np.array(np.where(criterion))[0]
 
+            # if there are less than 300 obs, then skip to the next day
             if np.size(tind) < 300:
                 continue
 
@@ -401,37 +406,38 @@ def pwlNadirSiteDailyStack(site_residuals, svs, params, nadSpacing=0.1,zenSpacin
                 #print("SVNPOS:",svnpos[0],"NORM:",np.linalg.norm(svnpos[0]))
 
                 # work out the nadir angle
-                oldnadir = calcNadirAngle(data[i,2])
+                #oldnadir = calcNadirAngle(data[i,2])
                 nadir = calcNadirAngle(data[i,2],site_geocentric_distance,satnorm)
                 #print("Ele {:.2f} Old: {:.2f} New:{:.2f}".format(data[i,2],oldnadir,nadir))
+                w = a**2 + b**2/np.sin(np.radians(data[i,2]))**2
+                w = 1./w
+
                 niz = int(np.floor(nadir/nadSpacing))
+                iz = int((numParamsPerSat * ctr) + niz)
+                pco_iz = numParamsPerSat * (ctr+1) - 1 
+
                 nsiz = int(np.floor(data[i,2]/zenSpacing))
-                #print("NADIR:",nadir,niz,data[i,2],nsiz)
                 siz = int( tSat +  m*numParamsPerSite + nsiz)
 
-                #w = 1./ np.sin(np.radians(data[i,2])) **2
-                w = a**2 + b**2/np.sin(np.radians(data[i,2]))**2
-                #print("Ele, W:",data[i,2],w,np.sqrt(w))
-                w = 1./w
-                iz = int((numParamsPerSat * ctr) + niz)
-                pco_iz = int(numParamsPerSat *ctr + numNADS )
-                #pco_iz = int(numParamsPerSat * (ctr+1) -1 )
+                # check that the indices are not overlapping
+                if iz+1 >= pco_iz:
+                    #print("WARNING in indices iz+1 = pco_iz skipping obs",nadir,iz,pco_iz)
+                    continue
+                
+                NadirFreq[ctr,niz] = NadirFreq[ctr,niz] +1
 
                 #print("Indices m,iz,pco_iz,siz:",m,iz,pco_iz,siz,i,numd)
                 # Nadir partials..
                 Apart_1 = (1.-(nadir-niz*nadSpacing)/nadSpacing)
                 Apart_2 = (nadir-niz*nadSpacing)/nadSpacing
+                #
                 # PCO partial ...
                 # soln 1
                 ##Apart_3 = 1./np.sin(np.radians(nadir)) 
                 #
-                # soln 2
-                #Apart_3 = -1./np.sin(np.radians(nadir)) 
-                # soln 3
-                #Apart_3 = np.sin(np.radians(nadir)) 
-                #
                 # soln4
                 Apart_3 = -np.sin(np.radians(nadir)) 
+
                 # Site partials
                 Apart_4 = (1.-(data[i,2]-nsiz*zenSpacing)/zenSpacing)
                 Apart_5 = (data[i,2]-nsiz*zenSpacing)/zenSpacing
@@ -480,8 +486,8 @@ def pwlNadirSiteDailyStack(site_residuals, svs, params, nadSpacing=0.1,zenSpacin
                 
                 indices = [iz, iz+1, pco_iz, siz, siz+1]
                 #print("INDICES:",indices)
-                if iz+1 == pco_iz:
-                    print("ERROR in indices iz+1 = pco_iz")
+                #if iz+1 == pco_iz:
+                #    print("ERROR in indices iz+1 = pco_iz")
 
                 if siz == pco_iz:
                     print("ERROR in indices siz = pco_iz")
@@ -494,7 +500,7 @@ def pwlNadirSiteDailyStack(site_residuals, svs, params, nadSpacing=0.1,zenSpacin
         prechi = prechi + np.dot(data[:,3].T,data[:,3])
         NUMD = NUMD + numd
     print("Normal finish of pwlNadirSiteDailyStack",prechi,NUMD)
-    return Neq, AtWb, prechi, NUMD
+    return Neq, AtWb, prechi, NUMD, NadirFreq
 
 def neqBySite(params,svs,args):
     print("\t Reading in file:",params['filename'])
@@ -506,15 +512,15 @@ def neqBySite(params,svs,args):
         Neq_tmp,AtWb_tmp,prechi_tmp,numd_tmp = pwlNadirSite(site_residuals,svs,params,args.nadir_grid,0.5)
     elif args.model == 'pwlSiteDaily':
         print("Attempting a stack on each day")
-        Neq_tmp,AtWb_tmp,prechi_tmp,numd_tmp = pwlNadirSiteDailyStack(site_residuals,svs,params,args.nadir_grid,0.5,args.brdc_dir)
+        Neq_tmp,AtWb_tmp,prechi_tmp,numd_tmp, nadir_freq = pwlNadirSiteDailyStack(site_residuals,svs,params,args.nadir_grid,0.5,args.brdc_dir)
 
-    print("Returned Neq, AtWb:",np.shape(Neq_tmp),np.shape(AtWb_tmp),prechi_tmp,numd_tmp)
+    print("Returned Neq, AtWb:",np.shape(Neq_tmp),np.shape(AtWb_tmp),prechi_tmp,numd_tmp,np.shape(nadir_freq))
             
     sf = params['filename']+".npz"
     prechis = [prechi_tmp]
     numds = [numd_tmp]
    
-    np.savez_compressed(sf,neq=Neq_tmp,atwb=AtWb_tmp,svs=svs,prechi=prechis,numd=numds)
+    np.savez_compressed(sf,neq=Neq_tmp,atwb=AtWb_tmp,svs=svs,prechi=prechis,numd=numds,nadirfreq=nadir_freq)
 
     return prechi_tmp, numd_tmp 
 
@@ -548,7 +554,7 @@ def setUpTasks(cl3files,svs,opts,params):
 
     return prechi,numd
    
-def compressNeq(Neq,AtWb,svs,numParamsPerSat):
+def compressNeq(Neq,AtWb,svs,numParamsPerSat,nadir_freq):
     # check for any rows/ columns without any observations, if they are empty remove the parameters
     satCtr = 0
     starts = []
@@ -578,22 +584,29 @@ def compressNeq(Neq,AtWb,svs,numParamsPerSat):
     remove = np.array(remove[::-1])
     for i in remove:
         svs = np.delete(svs,i)
+        nadir_freq = np.delete(nadir_freq,i,0)
 
     ends = np.array(ends[::-1])
     starts = np.array(starts[::-1])
 
-    print("BEFORE Neq shape:",np.shape(Neq))
-
+    print("BEFORE Neq shape:",np.shape(Neq),np.shape(nadir_freq))
+    # Axis 0 ---> (row)
+    # Axis 1 |    (column)
+    #        |
+    #        v
+    #
     for i in range(0,np.size(ends)):
         del_ind = range(starts[i],ends[i])
+        #print("deleting:",starts[i],ends[i])
         #del_ind = np.array(del_ind[::-1])
         #for d in del_ind:
         Neq = np.delete(Neq,del_ind,0)
         Neq = np.delete(Neq,del_ind,1)
         AtWb = np.delete(AtWb,del_ind)
 
-    print("AFTER Neq shape:",np.shape(Neq))
-    return Neq, AtWb, svs 
+    print("AFTER Neq shape:",np.shape(Neq),np.shape(nadir_freq))
+    return Neq, AtWb, svs, nadir_freq
+
 #=====================================
 #
 # TODO: time filter residuals
@@ -751,12 +764,12 @@ if __name__ == "__main__":
             params = []
 
             for f in range(0,np.size(cl3files)):
-                filename = os.path.basename(cl3files[f])
-                siteID = filename[0:4]
-                sdata = gsf.parseSite(args.station_file,siteID.upper())
-                changes = gsf.determineESMChanges(dt_start,dt_stop,sdata)
-                sitepos = gapr.getStationPos(args.apr_file,siteID)
-                numModels = numModels + np.size(changes['ind']) + 1
+                filename    = os.path.basename(cl3files[f])
+                siteID      = filename[0:4]
+                sdata       = gsf.parseSite(args.station_file,siteID.upper())
+                changes     = gsf.determineESMChanges(dt_start,dt_stop,sdata)
+                sitepos     = gapr.getStationPos(args.apr_file,siteID)
+                numModels   = numModels + np.size(changes['ind']) + 1
                 info = {}
                 info['filename']  = cl3files[f]
                 info['basename']  = filename
@@ -779,28 +792,29 @@ if __name__ == "__main__":
             # add one to make sure we have a linspace which includes 0.0 and 14.0
             # add another parameter for the zenith PCO estimate
             #=====================================================================
-            numNADS = int(14.0/args.nadir_grid) + 1 
-            PCOEstimates = 1
-            numSVS = np.size(svs)
-            numParamsPerSat = numNADS + PCOEstimates
-            tSat = numParamsPerSat * numSVS
-            numSites = numModels # np.size(cl3files)
-            tSite = 0
-            numParamsPerSite = 0
+            numNADS             = int(14.0/args.nadir_grid) + 1 
+            PCOEstimates        = 1
+            numSVS              = np.size(svs)
+            numParamsPerSat     = numNADS + PCOEstimates
+            tSat                = numParamsPerSat * numSVS
+            numSites            = numModels # np.size(cl3files)
+            tSite               = 0
+            numParamsPerSite    = 0
 
             if args.model == 'pwl':
                 numParams = numSVS * (numParamsPerSat)
             elif args.model == 'pwlSite' or args.model== 'pwlSiteDaily':
-                numParamsPerSite = int(90./args.zen) + 1 
-                numParams = numSVS * (numParamsPerSat) + numParamsPerSite * numSites
-                tSite = numParamsPerSite * numSites
+                numParamsPerSite    = int(90./args.zen) + 1 
+                numParams           = numSVS * (numParamsPerSat) + numParamsPerSite * numSites
+                tSite               = numParamsPerSite * numSites
 
             print("Total satellite parameters:",tSat)
             print("Total site parameters     :",tSite)
             print("\t Have:",numParams,"parameters to solve for")
 
-            Neq = np.zeros((numParams,numParams))
+            Neq  = np.zeros((numParams,numParams))
             AtWb = np.zeros(numParams)
+            nadir_freq = np.zeros((numSVS,numNADS))
 
             #=====================================================================
             # Now read in all of the numpy compressed files
@@ -815,6 +829,8 @@ if __name__ == "__main__":
                 npzfile = np.load(nfile)
                 Neq_tmp  = npzfile['neq']
                 AtWb_tmp = npzfile['atwb']
+               
+                nadir_freq = np.add(nadir_freq,npzfile['nadirfreq'])
 
                 # only need one copy of the svs array, they should be eactly the same
                 if nctr == 0:
@@ -823,8 +839,8 @@ if __name__ == "__main__":
                     del svs_tmp
 
                 # Add the svn component to the Neq
-                Neq[0:tSat-1,0:tSat-1] = Neq[0:tSat -1,0:tSat-1] + Neq_tmp[0:tSat-1,0:tSat-1]
-                AtWb[0:tSat-1] = AtWb[0:tSat-1] + AtWb_tmp[0:tSat-1]
+                Neq[0:tSat, 0:tSat] = Neq[0:tSat,0:tSat] + Neq_tmp[0:tSat,0:tSat]
+                AtWb[0:tSat]         = AtWb[0:tSat] + AtWb_tmp[0:tSat]
 
                 #===================================
                 # Loop over each model 
@@ -849,8 +865,8 @@ if __name__ == "__main__":
                     Neq[start:end,start:end] = Neq[start:end,start:end] + Neq_tmp[tmp_start:tmp_end,tmp_start:tmp_end]
 
                     # Adding in the correlation with the SVN and site
-                    Neq[0:tSat-1,start:end] = Neq[0:tSat-1,start:end] + Neq_tmp[0:tSat-1,tmp_start:tmp_end]
-                    Neq[start:end,0:tSat-1] = Neq[start:end,0:tSat-1] + Neq_tmp[tmp_start:tmp_end,0:tSat-1]
+                    Neq[0:tSat,start:end] = Neq[0:tSat,start:end] + Neq_tmp[0:tSat,tmp_start:tmp_end]
+                    Neq[start:end,0:tSat] = Neq[start:end,0:tSat] + Neq_tmp[tmp_start:tmp_end,0:tSat]
                     nctr += 1
                     totalSiteModels = totalSiteModels + 1
                     siteIDList.append(params[f]['site'])
@@ -861,7 +877,7 @@ if __name__ == "__main__":
 
             # remove the unwanted observations after it has been saved to disk
             # as we may want to add to Neq together, which may have observations to satellites not seen in the Neq..
-            Neq,AtWb,svs = compressNeq(Neq,AtWb,svs,numParamsPerSat)
+            Neq,AtWb,svs,nadir_freq = compressNeq(Neq,AtWb,svs,numParamsPerSat,nadir_freq)
             tSat = np.size(svs) * numParamsPerSat
             numParams = tSat + tSite
             numSVS = np.size(svs)
@@ -965,7 +981,7 @@ if __name__ == "__main__":
                     mdlCtr = mdlCtr + 1
 
             # check for any rows/ columns without any observations, if they are empty remove the parameters
-            Neq,AtWb,svs = compressNeq(Neq,AtWb,svs,numParamsPerSat)
+            Neq,AtWb,svs,nadir_freq = compressNeq(Neq,AtWb,svs,numParamsPerSat,nadir_freq)
             tSat = np.size(svs) * numParamsPerSat
             numParams = tSat + tSite
             numSVS = np.size(svs)
@@ -1054,9 +1070,14 @@ if __name__ == "__main__":
             fig = plt.figure()
             ax = fig.add_subplot(111)
             ax.spy(Neq, precision=1e-3, marker='.', markersize=5)
-            ctr = 0
+            #ax2 = ax.twiny()
             xlabels = []
             xticks = []
+            pcoticks = []
+            pcolabels = []
+
+            ctr = 0
+
             for svn in svs:
                 siz = numParamsPerSat * ctr 
                 eiz = numParamsPerSat *ctr + numNADS 
@@ -1064,19 +1085,38 @@ if __name__ == "__main__":
                 xlabels.append(svn)
                 tick = int((eiz-siz)/2)+siz
                 xticks.append(tick)
-        
+                pcoticks.append(eiz)
+                pcolabels.append(eiz)
+                #print("sat",tick,"pco",eiz)
+
             for snum in range(0,totalSiteModels):
                 siz = numParamsPerSat*numSVS + snum * numParamsPerSite 
                 eiz = siz + numParamsPerSite 
                 xlabels.append(siteIDList[snum])
                 tick = int((eiz-siz)/2)+siz
                 xticks.append(tick)
+                pcoticks.append(siz)
+                pcolabels.append(siz)
+                #print("SITE",siz,eiz,siz-eiz)
 
             ax.set_xticks(xticks)
             ax.set_xticklabels(xlabels,rotation='vertical')
+
             for item in ([ax.title, ax.xaxis.label, ax.yaxis.label] +
                        ax.get_xticklabels() + ax.get_yticklabels()):
                 item.set_fontsize(6)
+
+            plt.tight_layout()
+            #TPARAMS = (numParamsPerSat*numSVS)+(totalSiteModels*numParamsPerSite)
+            #print("TPARMS:",TPARAMS)
+            #ax2.set_xlim([0, (numParamsPerSat*numSVS)+(totalSiteModels*numParamsPerSite) ])
+            #ax2.set_xticks(pcoticks)
+            #ax2.set_xticklabels(pcolabels,rotation='vertical') #,position='bottom')
+            
+            #for item in ([ax2.title, ax2.xaxis.label, ax2.yaxis.label] +
+            #           ax2.get_xticklabels() + ax2.get_yticklabels()):
+            #    item.set_fontsize(6)
+
             if args.savePlots:
                 plt.savefig("NeqMatrix.png")
             plt.tight_layout()
@@ -1152,7 +1192,7 @@ if __name__ == "__main__":
 
         #variances = np.diag(Neq)
         variances = np.diag(Cov)
-        #print("Variance:",np.shape(variances))
+        print("Variance:",np.shape(variances))
 
         #============================================
         # Plot the sparsity of the matrix Neq
@@ -1199,23 +1239,18 @@ if __name__ == "__main__":
             #fig = plt.figure(figsize=(3.62, 2.76))
             fig = plt.figure()
             fig.canvas.set_window_title("SVN_"+svn+"_nadirCorrectionModel.png")
-            ax = fig.add_subplot(212)
-            ax1 = fig.add_subplot(211)
+            ax = fig.add_subplot(111)
 
             siz = numParamsPerSat * ctr 
             eiz = numParamsPerSat *ctr + numNADS 
            
             sol = Sol[siz:eiz]
             #print("SVN:",svn,siz,eiz,numParamsPerSat,tSat)
-            #ax1.plot(nad,Sol[siz:eiz],'r-',linewidth=2)
-            ax1.plot(nad,sol[::-1],'r-',linewidth=2)
-            #ax.errorbar(nad,Sol[siz:eiz],yerr=np.sqrt(variances[siz:eiz])/2.,fmt='o')
-            ax.errorbar(nad,sol[::-1],yerr=np.sqrt(variances[siz:eiz])/2.,fmt='o')
+            ax.errorbar(nad,Sol[siz:eiz],yerr=np.sqrt(variances[siz:eiz])/2.,fmt='o')
+            #ax.errorbar(nad,sol[::-1],yerr=np.sqrt(variances[siz:eiz])/2.)
 
-            #print(svn,Sol[siz:eiz],np.sqrt(variances[siz:eiz])/2.)
             ax.set_xlabel('Nadir Angle (degrees)',fontsize=8)
             ax.set_ylabel('Phase Residuals (mm)',fontsize=8)
-            #ax.set_xlim([0, 14])
 
             for item in ([ax.title, ax.xaxis.label, ax.yaxis.label] +
                        ax.get_xticklabels() + ax.get_yticklabels()):
@@ -1223,25 +1258,18 @@ if __name__ == "__main__":
 
             plt.tight_layout()
 
-            for item in ([ax1.title, ax1.xaxis.label, ax1.yaxis.label] +
-                       ax1.get_xticklabels() + ax1.get_yticklabels()):
-                item.set_fontsize(8)
-
-            plt.tight_layout()
             if args.savePlots:
                 plt.savefig("SVN_"+svn+"_nadirCorrectionModel.png")
             ctr += 1
                 
-            #if ctr > 2:
-            #    break
+            if ctr > 2:
+                break
 
         #==================================================
         #fig = plt.figure(figsize=(3.62, 2.76))
         fig = plt.figure()
         fig.canvas.set_window_title("PCO_correction.png")
-        #ax = fig.add_subplot(111)
-        ax = fig.add_subplot(212)
-        ax1 = fig.add_subplot(211)
+        ax = fig.add_subplot(111)
         ctr = 0
         numSVS = np.size(svs)
         numNADS = int(14.0/args.nadir_grid) + 1 
@@ -1249,24 +1277,15 @@ if __name__ == "__main__":
         print("Number of Params per Sat:",numParamsPerSat,"numNads",numNADS,"Sol",np.shape(Sol))
         for svn in svs:
             eiz = numParamsPerSat *ctr + numParamsPerSat -1 
-            #print(ctr,"PCO:",eiz)
-            ax1.plot(ctr,Sol[eiz],'k.',linewidth=2)
-            #print(svn,Sol[eiz],np.sqrt(variances[eiz])/2.)
-            #ax.subplot(212)
-            ax.errorbar(ctr,Sol[eiz],yerr=np.sqrt(variances[eiz])/2.,fmt='o')
+            #print("PCO:",eiz)
+            ax.errorbar(ctr+1,Sol[eiz],yerr=np.sqrt(variances[eiz])/2.,fmt='o')
             ctr += 1
 
         ax.set_xlabel('SVN',fontsize=8)
         ax.set_ylabel('Adjustment to PCO (mm)',fontsize=8)
-        #ax.set_xlim([0, 14])
 
         for item in ([ax.title, ax.xaxis.label, ax.yaxis.label] +
                    ax.get_xticklabels() + ax.get_yticklabels()):
-            item.set_fontsize(8)
-        plt.tight_layout()
-
-        for item in ([ax1.title, ax1.xaxis.label, ax1.yaxis.label] +
-                   ax1.get_xticklabels() + ax1.get_yticklabels()):
             item.set_fontsize(8)
         plt.tight_layout()
 
@@ -1285,24 +1304,16 @@ if __name__ == "__main__":
                 #fig = plt.figure(figsize=(3.62, 2.76))
                 fig = plt.figure()
                 fig.canvas.set_window_title(siteIDList[snum]+"_elevation_model.png")
-                ax = fig.add_subplot(212)
-                ax1 = fig.add_subplot(211)
+                ax = fig.add_subplot(111)
                 siz = numParamsPerSat*numSVS + snum * numParamsPerSite 
                 eiz = siz + numParamsPerSite 
                 ele = np.linspace(0,90,numParamsPerSite)
                 #print("Sol",np.shape(Sol),"siz  ",siz,eiz)
-                ax1.plot(ele,Sol[siz:eiz],'k.',linewidth=2)
+                #ax1.plot(ele,Sol[siz:eiz],'k.',linewidth=2)
                 ax.errorbar(ele,Sol[siz:eiz],yerr=np.sqrt(variances[siz:eiz])/2.,fmt='o')
-                #print(svn,Sol[siz:eiz],np.sqrt(variances[siz:eiz])/2.)
 
                 ax.set_xlabel('Zenith Angle',fontsize=8)
                 ax.set_ylabel('Adjustment to PCV (mm)',fontsize=8)
-                #ax.set_xlim([0, 14])
-
-                for item in ([ax1.title, ax1.xaxis.label, ax1.yaxis.label] +
-                                ax1.get_xticklabels() + ax1.get_yticklabels()):
-                    item.set_fontsize(8)
-                plt.tight_layout()
 
                 for item in ([ax.title, ax.xaxis.label, ax.yaxis.label] +
                     ax.get_xticklabels() + ax.get_yticklabels()):
