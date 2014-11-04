@@ -407,8 +407,9 @@ def pwlNadirSiteDailyStack(site_residuals, svs, params, nadSpacing=0.1,zenSpacin
 
                 # work out the nadir angle
                 #oldnadir = calcNadirAngle(data[i,2])
-                nadir = calcNadirAngle(data[i,2],site_geocentric_distance,satnorm)
+                nadir = calcNadirAngle(90.-data[i,2],site_geocentric_distance,satnorm)
                 #print("Ele {:.2f} Old: {:.2f} New:{:.2f}".format(data[i,2],oldnadir,nadir))
+                #print("Ele {:.2f} New:{:.2f}".format(data[i,2],nadir))
                 w = a**2 + b**2/np.sin(np.radians(data[i,2]))**2
                 w = 1./w
 
@@ -988,7 +989,7 @@ if __name__ == "__main__":
             print("NumParams:",numParams)
 
         if args.save_stacked_file:
-            np.savez_compressed('stacked.npz',neq=Neq,atwb=AtWb,svs=svs,prechi=prechis,numd=numds)
+            np.savez_compressed('stacked.npz',neq=Neq,atwb=AtWb,svs=svs,prechi=prechis,numd=numds,nadirfreq=nadir_freq)
 
     # check if we are parsing in a pre-stacked file
     if args.stacked_file:
@@ -998,6 +999,7 @@ if __name__ == "__main__":
         svs     = npzfile['svs']
         prechis = npzfile['prechi']
         numds   = npzfile['numd']
+        nadir_freq = npzfile['nadir_freq']
         print("Just read in stacked file:",args.stacked_file)
         #print("Prechi Numd:",prechi,numd) 
 
@@ -1181,7 +1183,7 @@ if __name__ == "__main__":
             meta['saved_file'] = args.solution + ".sol"
             pickle.dump(meta,pklID,2)
 
-            np.savez_compressed(args.solution+".sol",sol=Sol,cov=Cov)
+            np.savez_compressed(args.solution+".sol",sol=Sol,cov=Cov,nadirfreq=nadir_freq)
             #pickle.dump(Sol,pklID)
             #pickle.dump(Cov,pklID)
             pklID.close()            
@@ -1244,7 +1246,7 @@ if __name__ == "__main__":
             siz = numParamsPerSat * ctr 
             eiz = numParamsPerSat *ctr + numNADS 
            
-            sol = Sol[siz:eiz]
+        #    sol = Sol[siz:eiz]
             #print("SVN:",svn,siz,eiz,numParamsPerSat,tSat)
             ax.errorbar(nad,Sol[siz:eiz],yerr=np.sqrt(variances[siz:eiz])/2.,fmt='o')
             #ax.errorbar(nad,sol[::-1],yerr=np.sqrt(variances[siz:eiz])/2.)
@@ -1262,8 +1264,8 @@ if __name__ == "__main__":
                 plt.savefig("SVN_"+svn+"_nadirCorrectionModel.png")
             ctr += 1
                 
-            if ctr > 2:
-                break
+        #    if ctr > 2:
+        #        break
 
         #==================================================
         #fig = plt.figure(figsize=(3.62, 2.76))

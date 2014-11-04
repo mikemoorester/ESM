@@ -59,6 +59,7 @@ if __name__ == "__main__":
     npzfile = np.load(args.nfile)
     Sol  = npzfile['sol']
     Cov  = npzfile['cov']
+    nadir_freq = npzfile['nadirfreq']
         #meta['model'] = args.model
         #meta['nadir_grid'] = args.nadir_grid
         #meta['antex_file'] = args.antex
@@ -96,23 +97,30 @@ if __name__ == "__main__":
     if args.satPCV or args.plot or args.plot_save:
         ctr = 0
         for svn in meta['svs']:
-            #fig = plt.figure(figsize=(3.62, 2.76))
+            # Now plot the distribution of the observations wrt to nadir angle
             fig = plt.figure()
-            fig.canvas.set_window_title("SVN_"+svn+"_nadirCorrectionModel.png")
+            fig.canvas.set_window_title("SVN_"+svn+"_nadirCorrectionModelDistribution.png")
             ax = fig.add_subplot(111)
 
             siz = numParamsPerSat * ctr 
             eiz = (numParamsPerSat * (ctr+1)) - 1
            
             sol = Sol[siz:eiz]
-            ax.errorbar(nad,sol[::-1],yerr=np.sqrt(variances[siz:eiz])/2.,fmt='o')
+            ax.errorbar(nad,Sol[siz:eiz],yerr=np.sqrt(variances[siz:eiz])/2.,fmt='o')
+            ax1 = ax.twinx()
+            ax1.bar(nad,nadir_freq[ctr,:],0.1,color='gray',alpha=0.5)
+            ax1.set_ylabel('Number of observations',fontsize=8)
 
-            ax.set_xlabel('Nadir Angle (degrees)',fontsize=8)
-            ax.set_ylabel('Phase Residuals (mm)',fontsize=8)
             ax.set_ylim([-4, 4])
+            ax.set_xlabel('Nadir Angle (degrees)',fontsize=8)
+            ax.set_ylabel('Correction to Nadir PCV (mm)',fontsize=8)
 
             for item in ([ax.title, ax.xaxis.label, ax.yaxis.label] +
                    ax.get_xticklabels() + ax.get_yticklabels()):
+                item.set_fontsize(8)
+
+            for item in ([ax1.title, ax1.xaxis.label, ax1.yaxis.label] +
+                   ax1.get_xticklabels() + ax1.get_yticklabels()):
                 item.set_fontsize(8)
 
             plt.tight_layout()
@@ -181,7 +189,7 @@ if __name__ == "__main__":
 
             plt.tight_layout()
             if args.plot_save:
-                plt.savefig(siteIDList[snum]+"_elevation_model.png")
+                plt.savefig(meta['siteIDList'][snum]+"_elevation_model.png")
 
     del Cov,Sol 
 
