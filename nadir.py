@@ -22,6 +22,8 @@ import svnav
 import broadcastNavigation as brdc
 import Navigation as rnxN
 
+import scipy as sp
+
 def satelliteModel(antenna,nadirData):
     #assuming a 14 model at 1 deg intervals
     ctr = 0
@@ -291,7 +293,6 @@ def pwlNadirSiteDailyStack(site_residuals, svs, params, nadSpacing=0.1,zenSpacin
     """
     prechi = 0
     NUMD   = 0
-
     # add one to make sure we have a linspace which includes 0.0 and 14.0
     # add another parameter for the zenith PCO estimate
     numNADS = int(14.0/nadSpacing) + 1 
@@ -303,6 +304,9 @@ def pwlNadirSiteDailyStack(site_residuals, svs, params, nadSpacing=0.1,zenSpacin
     numParamsPerSite = int(90.0/zenSpacing) + 1
     tSite = numParamsPerSite*params['numModels']
     numParams = tSat + tSite 
+
+    prefit_sums = np.zeros(numParams)
+    prefit_sum = 0.0
 
     print("------------------------------------------------")
     print("Processing Site:                        ",params['site'])
@@ -322,7 +326,7 @@ def pwlNadirSiteDailyStack(site_residuals, svs, params, nadSpacing=0.1,zenSpacin
     AtWb = np.zeros(numParams)
     change = params['changes']
 
-    # keep trck of how may observations ar ein each bin
+    # keep track of how may observations are in each bin
     NadirFreq = np.zeros((numSVS,numNADS))
 
     for m in range(0,int(params['numModels'])):
@@ -485,14 +489,15 @@ def pwlNadirSiteDailyStack(site_residuals, svs, params, nadSpacing=0.1,zenSpacin
                 Neq[siz+1,siz+1]  = Neq[siz+1,siz+1]  + (Apart_5 * Apart_5 * w)
                 #print("Finished NEQ Site estimates")
                 
-                indices = [iz, iz+1, pco_iz, siz, siz+1]
-                #print("INDICES:",indices)
-                #if iz+1 == pco_iz:
-                #    print("ERROR in indices iz+1 = pco_iz")
-
                 if siz == pco_iz:
                     print("ERROR in indices siz = pco_iz")
 
+                prefit_sum          = prefit_sum + (data[i,3]/1000.)**2.
+                prefit_sums[iz]     = prefit_sums[iz] + (data[i,3]/1000.)**2.
+                prefit_sums[iz+1]   = prefit_sums[iz+1] + (data[i,3]/1000.)**2.
+                prefit_sums[pco_iz] = prefit_sums[pco_iz] + (data[i,3]/1000.)**2.
+                prefit_sums[siz]    = prefit_sums[siz] + (data[i,3]/1000.)**2.
+                prefit_sums[siz+1]  = prefit_sums[siz+1] + (data[i,3]/1000.)**2.
                 #for i in indices:
                 #    for j in indices:
                 #        if Neq[i,j] < 0. :
@@ -501,7 +506,7 @@ def pwlNadirSiteDailyStack(site_residuals, svs, params, nadSpacing=0.1,zenSpacin
         prechi = prechi + np.dot(data[:,3].T,data[:,3])
         NUMD = NUMD + numd
     print("Normal finish of pwlNadirSiteDailyStack",prechi,NUMD)
-    return Neq, AtWb, prechi, NUMD, NadirFreq
+    return Neq, AtWb, prechi, NUMD, NadirFreq, prefit_sum, prefit_sums
 
 def neqBySite(params,svs,args):
     print("\t Reading in file:",params['filename'])
@@ -513,15 +518,16 @@ def neqBySite(params,svs,args):
         Neq_tmp,AtWb_tmp,prechi_tmp,numd_tmp = pwlNadirSite(site_residuals,svs,params,args.nadir_grid,0.5)
     elif args.model == 'pwlSiteDaily':
         print("Attempting a stack on each day")
-        Neq_tmp,AtWb_tmp,prechi_tmp,numd_tmp, nadir_freq = pwlNadirSiteDailyStack(site_residuals,svs,params,args.nadir_grid,0.5,args.brdc_dir)
+        Neq_tmp,AtWb_tmp,prechi_tmp,numd_tmp, nadir_freq, prefit_sum, prefit_sums = pwlNadirSiteDailyStack(site_residuals,svs,params,args.nadir_grid,0.5,args.brdc_dir)
 
     print("Returned Neq, AtWb:",np.shape(Neq_tmp),np.shape(AtWb_tmp),prechi_tmp,numd_tmp,np.shape(nadir_freq))
             
     sf = params['filename']+".npz"
     prechis = [prechi_tmp]
     numds = [numd_tmp]
-   
-    np.savez_compressed(sf,neq=Neq_tmp,atwb=AtWb_tmp,svs=svs,prechi=prechis,numd=numds,nadirfreq=nadir_freq)
+    prefitA = [prefit_sum]
+    
+    np.savez_compressed(sf,neq=Neq_tmp,atwb=AtWb_tmp,svs=svs,prechi=prechis,numd=numds,nadirfreq=nadir_freq,prefit=prefitA,prefitsums=prefit_sums)
 
     return prechi_tmp, numd_tmp 
 
@@ -816,6 +822,8 @@ if __name__ == "__main__":
             Neq  = np.zeros((numParams,numParams))
             AtWb = np.zeros(numParams)
             nadir_freq = np.zeros((numSVS,numNADS))
+            prefit = 0.0
+            prefit_sums = np.zeros(numParams)
 
             #=====================================================================
             # Now read in all of the numpy compressed files
@@ -830,7 +838,10 @@ if __name__ == "__main__":
                 npzfile = np.load(nfile)
                 Neq_tmp  = npzfile['neq']
                 AtWb_tmp = npzfile['atwb']
-               
+
+                prefit = prefit + npzfile['prefit'][0]      
+                prefit_sums = np.add(prefit_sums,npzfile['prefitsums'])
+
                 nadir_freq = np.add(nadir_freq,npzfile['nadirfreq'])
 
                 # only need one copy of the svs array, they should be eactly the same
@@ -874,7 +885,8 @@ if __name__ == "__main__":
 
 
             if args.save_file:
-                np.savez_compressed('consolidated.npz',neq=Neq,atwb=AtWb,svs=svs)
+                prefitA = [prefit]
+                np.savez_compressed('consolidated.npz',neq=Neq,atwb=AtWb,svs=svs,nadirfreq=nadir_freq,prefit=prefitA,prefitsums=prefit_sums)
 
             # remove the unwanted observations after it has been saved to disk
             # as we may want to add to Neq together, which may have observations to satellites not seen in the Neq..
@@ -950,13 +962,19 @@ if __name__ == "__main__":
             print("Total number of site models :",mctr, "Total number of paramters to solve for:",numParams)
             Neq = np.zeros((numParams,numParams))
             AtWb = np.zeros(numParams)
-
+            nadir_freq = np.zeros((numSVS,numNADS))
+            prefit = 0.
+            prefit_sums = np.zeros(numParams)
             mdlCtr = 0
             for n in range(0,np.size(npzfiles)):
                 npzfile = np.load(npzfiles[n])
                 Neq_tmp  = npzfile['neq']
                 AtWb_tmp = npzfile['atwb']
                 svs_tmp  = npzfile['svs']
+                nadir_freq = np.add(nadir_freq,npzfile['nadirfreq'])
+                prefit = prefit + npzfile['prefit'][0]      
+                prefit_sums = np.add(prefit_sums,npzfile['prefitsums'])
+
                 if n == 0:
                     svs = np.sort(svs_tmp)
 
@@ -989,7 +1007,8 @@ if __name__ == "__main__":
             print("NumParams:",numParams)
 
         if args.save_stacked_file:
-            np.savez_compressed('stacked.npz',neq=Neq,atwb=AtWb,svs=svs,prechi=prechis,numd=numds,nadirfreq=nadir_freq)
+            prefitA = [prefit]
+            np.savez_compressed('stacked.npz',neq=Neq,atwb=AtWb,svs=svs,prechi=prechis,numd=numds,nadirfreq=nadir_freq,prefit=prefitA,prefitsums=prefit_sums)
 
     # check if we are parsing in a pre-stacked file
     if args.stacked_file:
@@ -1000,6 +1019,8 @@ if __name__ == "__main__":
         prechis = npzfile['prechi']
         numds   = npzfile['numd']
         nadir_freq = npzfile['nadir_freq']
+        prefit  = npzfile['prefit'][0]
+        prefits_sums = npzfile['prefitsums']
         print("Just read in stacked file:",args.stacked_file)
         #print("Prechi Numd:",prechi,numd) 
 
@@ -1109,15 +1130,6 @@ if __name__ == "__main__":
                 item.set_fontsize(6)
 
             plt.tight_layout()
-            #TPARAMS = (numParamsPerSat*numSVS)+(totalSiteModels*numParamsPerSite)
-            #print("TPARMS:",TPARAMS)
-            #ax2.set_xlim([0, (numParamsPerSat*numSVS)+(totalSiteModels*numParamsPerSite) ])
-            #ax2.set_xticks(pcoticks)
-            #ax2.set_xticklabels(pcolabels,rotation='vertical') #,position='bottom')
-            
-            #for item in ([ax2.title, ax2.xaxis.label, ax2.yaxis.label] +
-            #           ax2.get_xticklabels() + ax2.get_yticklabels()):
-            #    item.set_fontsize(6)
 
             if args.savePlots:
                 plt.savefig("NeqMatrix.png")
@@ -1128,7 +1140,8 @@ if __name__ == "__main__":
 
 
     print("Now trying an inverse of Neq",np.shape(Neq))
-    Cov = np.linalg.pinv(Neq)
+    #Cov = np.linalg.pinv(Neq)
+    Cov = sp.linalg.pinv(Neq)
     #Cho = np.linalg.cholesky(Neq)
     #Cho_inv = np.linalg.pinv(Cho)
     #Cov = np.dot(Cho_inv.T,Cho_inv)
@@ -1143,7 +1156,7 @@ if __name__ == "__main__":
              
     postchi = prechi - np.dot(np.array(AtWb).T,np.array(Sol))
     print("STATS:",numd,np.sqrt(prechi/numd),np.sqrt(postchi/numd),np.sqrt((prechi-postchi)/numd))#,aic,bic)
-
+    print("stats:",prefit,prefit_sums)
     #=======================================================================================================
     #
     #       Save the solution to a pickle data structure

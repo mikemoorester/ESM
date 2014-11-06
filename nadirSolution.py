@@ -94,21 +94,23 @@ if __name__ == "__main__":
     #============================================
     # Plot the SVN stacked residuals/correction
     #============================================
-    if args.satPCV or args.plot or args.plot_save:
+    if args.satPCV or args.plot :
         ctr = 0
         for svn in meta['svs']:
             # Now plot the distribution of the observations wrt to nadir angle
             fig = plt.figure()
-            fig.canvas.set_window_title("SVN_"+svn+"_nadirCorrectionModelDistribution.png")
+            fig.canvas.set_window_title("SVN_"+svn+"_nadirCorrection.eps")
             ax = fig.add_subplot(111)
 
             siz = numParamsPerSat * ctr 
             eiz = (numParamsPerSat * (ctr+1)) - 1
            
             sol = Sol[siz:eiz]
-            ax.errorbar(nad,Sol[siz:eiz],yerr=np.sqrt(variances[siz:eiz])/2.,fmt='o')
+            #ax.errorbar(nad,Sol[siz:eiz],yerr=np.sqrt(variances[siz:eiz])/2.,fmt='o')
+            #ax.errorbar(nad,Sol[siz:eiz],yerr=np.sqrt(variances[siz:eiz])/2.,linewidth=2)
+            ax.errorbar(nad,Sol[siz:eiz],yerr=np.sqrt(variances[siz:eiz])/2.,linewidth=2)
             ax1 = ax.twinx()
-            ax1.bar(nad,nadir_freq[ctr,:],0.1,color='gray',alpha=0.5)
+            ax1.bar(nad,nadir_freq[ctr,:],0.1,color='gray',alpha=0.75)
             ax1.set_ylabel('Number of observations',fontsize=8)
 
             ax.set_ylim([-4, 4])
@@ -126,11 +128,12 @@ if __name__ == "__main__":
             plt.tight_layout()
 
             if args.plot_save:
-                plt.savefig("SVN_"+svn+"_nadirCorrectionModel.png")
+                plt.savefig("SVN_"+svn+"_nadirCorrection.eps")
+                plt.savefig("SVN_"+svn+"_nadirCorrection.png")
             ctr += 1
             
     #==================================================
-    if args.satPCO or args.plot_save or args.plot:
+    if args.satPCO or args.plot:
         #fig = plt.figure(figsize=(3.62, 2.76))
         fig = plt.figure()
         fig.canvas.set_window_title("PCO_correction.png")
@@ -158,7 +161,7 @@ if __name__ == "__main__":
         if args.plot_save:
             plt.savefig("PCO_correction.png")
 
-    if args.sitePCV or args.plot or args.plot_save:
+    if args.sitePCV or args.plot :
         ctr = 0
         numSVS = np.size(meta['svs'])
         numNADS = int(14.0/meta['nadir_grid']) + 1 
