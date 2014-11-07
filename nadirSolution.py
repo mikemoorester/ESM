@@ -12,6 +12,13 @@ import sys
 
 import svnav
 
+def plotFontSize(ax,fontsize=8):
+    for item in ([ax.title, ax.xaxis.label, ax.yaxis.label] +
+            ax.get_xticklabels() + ax.get_yticklabels()):
+        item.set_fontsize(8)
+
+    return ax
+
 #=====================================
 if __name__ == "__main__":
 #    import warnings
@@ -29,17 +36,28 @@ if __name__ == "__main__":
                    ''')
 
     #===================================================================
+    parser.add_argument('--about','-a',dest='about',default=False,action='store_true',help="Print meta data from solution file then exit")    
+    #===================================================================
     # Station meta data options
+    #===================================================================
     parser.add_argument('-f', dest='solutionFile', default='',help="Pickled solution file")
     parser.add_argument('-n', dest='nfile', default='',help="Numpy solution file")
     #===================================================================
     # Plot options
+    #===================================================================
     parser.add_argument('--plot',dest='plot', default=False, action='store_true', help="Produce an elevation dependent plot of ESM phase residuals")
     parser.add_argument('--satPCO',dest='satPCO', default=False, action='store_true', help="Plot the PCO estimates")
     parser.add_argument('--satPCV',dest='satPCV', default=False, action='store_true', help="Plot the sat PCV estimates")
     parser.add_argument('--sitePCV',dest='sitePCV', default=False, action='store_true', help="Plot the site PCV estimates")
     parser.add_argument('--ps','--plot_save',dest='plot_save',default=False,action='store_true', help="Save the plots in png format")
-    parser.add_argument('--about','-a',dest='about',default=False,action='store_true',help="Print meta data from solution file then exit")    
+
+    #===================================================================
+    # Compare Solutions 
+    #===================================================================
+    parser.add_argument('--compare',dest='compare',default=False,action='store_true',help="Compare two solutions")
+    parser.add_argument('--f2', dest='compare_solutionFile', default='',help="Pickled solution file")
+    parser.add_argument('--n2', dest='compare_nfile', default='',help="Numpy solution file")
+
     # Debug function, not needed
     args = parser.parse_args()
 
@@ -60,6 +78,14 @@ if __name__ == "__main__":
     Sol  = npzfile['sol']
     Cov  = npzfile['cov']
     nadir_freq = npzfile['nadirfreq']
+
+    if args.compare:
+        compare_npzfile     = np.load(args.compare_nfile)
+        compare_Sol         = compare_npzfile['sol']
+        compare_Cov         = compare_npzfile['cov']
+        compare_nadir_freq  = compare_npzfile['nadirfreq']
+        compare_variances   = np.diag(compare_Cov)
+
         #meta['model'] = args.model
         #meta['nadir_grid'] = args.nadir_grid
         #meta['antex_file'] = args.antex
@@ -96,41 +122,73 @@ if __name__ == "__main__":
     #============================================
     if args.satPCV or args.plot :
         ctr = 0
-        for svn in meta['svs']:
-            # Now plot the distribution of the observations wrt to nadir angle
-            fig = plt.figure()
-            fig.canvas.set_window_title("SVN_"+svn+"_nadirCorrection.eps")
-            ax = fig.add_subplot(111)
+        if args.compare:
+            for svn in meta['svs']:
+                # Now plot the distribution of the observations wrt to nadir angle
+                fig = plt.figure()
+                fig.canvas.set_window_title("SVN_"+svn+"_nadirCorrectionComparison")
+                ax   = fig.add_subplot(211)
+                ax2  = fig.add_subplot(212)
 
-            siz = numParamsPerSat * ctr 
-            eiz = (numParamsPerSat * (ctr+1)) - 1
+                siz = numParamsPerSat * ctr 
+                eiz = (numParamsPerSat * (ctr+1)) - 1
            
-            sol = Sol[siz:eiz]
-            #ax.errorbar(nad,Sol[siz:eiz],yerr=np.sqrt(variances[siz:eiz])/2.,fmt='o')
-            #ax.errorbar(nad,Sol[siz:eiz],yerr=np.sqrt(variances[siz:eiz])/2.,linewidth=2)
-            ax.errorbar(nad,Sol[siz:eiz],yerr=np.sqrt(variances[siz:eiz])/2.,linewidth=2)
-            ax1 = ax.twinx()
-            ax1.bar(nad,nadir_freq[ctr,:],0.1,color='gray',alpha=0.75)
-            ax1.set_ylabel('Number of observations',fontsize=8)
+                sol = Sol[siz:eiz]
+                ax.errorbar(nad,Sol[siz:eiz],yerr=np.sqrt(variances[siz:eiz])/2.,linewidth=2,fmt='b')
+                #ax.plot(nad,Sol_compare[siz:eiz],linewidth=2,'b-')
 
-            ax.set_ylim([-4, 4])
-            ax.set_xlabel('Nadir Angle (degrees)',fontsize=8)
-            ax.set_ylabel('Correction to Nadir PCV (mm)',fontsize=8)
+                ax1 = ax.twinx()
+                ax1.bar(nad,nadir_freq[ctr,:],0.1,color='gray',alpha=0.75)
+                ax1.set_ylabel('Number of observations',fontsize=8)
 
-            for item in ([ax.title, ax.xaxis.label, ax.yaxis.label] +
-                   ax.get_xticklabels() + ax.get_yticklabels()):
-                item.set_fontsize(8)
+                ax.errorbar(nad,compare_Sol[siz:eiz],yerr=np.sqrt(compare_variances[siz:eiz])/2.,linewidth=2,fmt='k')
+                #ax.plot(nad,Sol_compare[siz:eiz],linewidth=2,'k-')
 
-            for item in ([ax1.title, ax1.xaxis.label, ax1.yaxis.label] +
-                   ax1.get_xticklabels() + ax1.get_yticklabels()):
-                item.set_fontsize(8)
+                ax.set_ylim([-4, 4])
+                ax.set_xlabel('Nadir Angle (degrees)',fontsize=8)
+                ax.set_ylabel('Correction to Nadir PCV (mm)',fontsize=8)
 
-            plt.tight_layout()
+                ax = plotFontSize(ax,8)
+                ax1 = plotFontSize(ax1,8)
 
-            if args.plot_save:
-                plt.savefig("SVN_"+svn+"_nadirCorrection.eps")
-                plt.savefig("SVN_"+svn+"_nadirCorrection.png")
-            ctr += 1
+                #diff = np.minus(Sol[siz:eiz],compare_Sol[siz:eiz])
+                diff = Sol[siz:eiz] - compare_Sol[siz:eiz]
+                ax2.plot(nad,diff,'r-',linewidth=2)
+
+                plt.tight_layout()
+
+                if args.plot_save:
+                    plt.savefig("SVN_"+svn+"_nadirCorrection.eps")
+
+        else:
+            for svn in meta['svs']:
+                # Now plot the distribution of the observations wrt to nadir angle
+                fig = plt.figure()
+                fig.canvas.set_window_title("SVN_"+svn+"_nadirCorrection.eps")
+                ax = fig.add_subplot(111)
+
+                siz = numParamsPerSat * ctr 
+                eiz = (numParamsPerSat * (ctr+1)) - 1
+           
+                sol = Sol[siz:eiz]
+                ax.errorbar(nad,Sol[siz:eiz],yerr=np.sqrt(variances[siz:eiz])/2.,linewidth=2)
+                ax1 = ax.twinx()
+                ax1.bar(nad,nadir_freq[ctr,:],0.1,color='gray',alpha=0.75)
+                ax1.set_ylabel('Number of observations',fontsize=8)
+
+                ax.set_ylim([-4, 4])
+                ax.set_xlabel('Nadir Angle (degrees)',fontsize=8)
+                ax.set_ylabel('Correction to Nadir PCV (mm)',fontsize=8)
+
+                ax = plotFontSize(ax,8)
+                ax1 = plotFontSize(ax1,8)
+
+                plt.tight_layout()
+
+                if args.plot_save:
+                    plt.savefig("SVN_"+svn+"_nadirCorrection.eps")
+                    plt.savefig("SVN_"+svn+"_nadirCorrection.png")
+                ctr += 1
             
     #==================================================
     if args.satPCO or args.plot:

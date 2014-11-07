@@ -606,7 +606,7 @@ def compressNeq(Neq,AtWb,svs,numParamsPerSat,nadir_freq):
     print("AFTER Neq shape:",np.shape(Neq),np.shape(nadir_freq))
     return Neq, AtWb, svs, nadir_freq
 
-def calcPostFitBySite(site_residuals,svs,Sol,params,args):
+def calcPostFitBySite(site_residuals,svs,Sol,params,args,modelNum):
     """
     calcPostFitBySite()
 
@@ -631,7 +631,7 @@ def calcPostFitBySite(site_residuals,svs,Sol,params,args):
 
     change = params['changes']
 
-    for m in range(0,int(params['numModels'])):
+    for m in range(modelNum,modelNum+int(params['numModels'])):
         # start_yyyy and start_ddd should always be defind, however stop_dd may be absent
         # ie no changes have ocured since the last setup
         minVal_dt = gt.ydhms2dt(change['start_yyyy'][m],change['start_ddd'][m],0,0,0)
@@ -743,6 +743,47 @@ def calcPostFitBySite(site_residuals,svs,Sol,params,args):
 
     return postfit, postfit_sums
 
+def setUpPostFitTasks(site_residuals,svs,Sol,info,args,mdlCtr):
+    prechi = 0
+    numd = 0
+    print('cpu_count() = {:d}\n'.format(multiprocessing.cpu_count()))
+    NUMBER_OF_PROCESSES = multiprocessing.cpu_count()
+
+    if opts.cpu < NUMBER_OF_PROCESSES:
+        NUMBER_OF_PROCESSES = int(opts.cpu)
+
+    #print("Creating a pool of {:d} processes".format(NUMBER_OF_PROCESSES))
+
+    pool = multiprocessing.Pool(NUMBER_OF_PROCESSES)
+
+    # Submit the tasks
+    results = []
+    for i in range(0,np.size(cl3files)) :
+        print("Submitting job:",params[i]['site'])
+        results.append(pool.apply_async(neqBySite,(params[i],svs,opts)))
+
+    # Wait for all of them to finish before moving on
+    for r in results:
+        #print("\t Waiting:",r.wait())
+        r.wait()
+        postfit_tmp, postfit_sums_tmp, info, mdlCtr = r.get()
+        postfit = postfit + postfit_tmp
+
+        print("RGET:", postfit)
+        for m in range(mdlCtr,info['numModels']) :
+            # Add in the station dependent models
+            start = tSat + mdlCtr * numParamsPerSite 
+            end   = tSat + (mdlCtr+1) * numParamsPerSite
+
+            tmp_start = tSat + numParamsPerSite * m 
+            tmp_end   = tSat + numParamsPerSite * m + numParamsPerSite
+
+            postfit_sums[start:end] = postfit_sums[start:end] + postfit_sums_tmp[tmp_start:tmp_end]
+
+            mdlCtr = mdlCtr + 1
+        print("STATS:",postfit,postfit_sums,postfit/prefit)
+        #postfit_tmp, postfit_sums_tmp, mdlCtr_tmp = setUpPostFitTasks(site_residuals,svs,Sol,info,args,mdlCtr)
+    return postfit, postfit_sums
 
 #=====================================
 #
@@ -973,9 +1014,6 @@ if __name__ == "__main__":
                 prefit = prefit + npzfile['prefit'][0]      
                 prefit_sums_tmp = npzfile['prefitsums']
 
-                #postfit = postfit + npzfile['postfit'][0]      
-                #postfit_sums_tmp = npzfile['postfitsums']
-
                 nadir_freq = np.add(nadir_freq,npzfile['nadirfreq'])
 
                 # only need one copy of the svs array, they should be eactly the same
@@ -990,7 +1028,6 @@ if __name__ == "__main__":
 
                 # Add the postfit sum and prefit sums for the SVN component/block together
                 prefit_sums[0:tSat]  = prefit_sums[0:tSat] + prefit_sums_tmp[0:tSat]
-                #postfit_sums[0:tSat] = postfit_sums[0:tSat] + postfit_sums_tmp[0:tSat]
                 
                 #===================================
                 # Loop over each model 
@@ -1202,8 +1239,6 @@ if __name__ == "__main__":
                         #print(start,end,np.shape(C),np.shape(sPCV_corr))
                         C[start,start:end] = sPCV_corr[0:(end - start)] 
                         C[start:end,start] = sPCV_corr[0:(end - start)] 
-                        #C[start,(start+1):end] = C[start,(start+1):end] + sPCV_corr[1:(end - start)] 
-                        #C[(start+1):end,start] = C[(start+1):end,start] + sPCV_corr[1:(end - start)] 
 
             # Add in the satellie PCO constraints
             for s in range(0,numSVS):
@@ -1320,20 +1355,25 @@ if __name__ == "__main__":
             info['sitepos']   = sitepos
 
             site_residuals = res.parseConsolidatedNumpy(info['filename'])
-            postfit_tmp, postfit_sums_tmp = calcPostFitBySite(site_residuals,svs,Sol,info,args)
-            postfit = postfit + postfit_tmp
-            for m in range(0,info['numModels']) :
-                # Add in the station dependent models
-                start = tSat + mdlCtr * numParamsPerSite 
-                end   = tSat + (mdlCtr+1) * numParamsPerSite
+            postfit_tmp, postfit_sums_tmp, mdlCtr_tmp = calcPostFitBySite(site_residuals,svs,Sol,info,args,mdlCtr)
 
-                tmp_start = tSat + numParamsPerSite * m 
-                tmp_end   = tSat + numParamsPerSite * m + numParamsPerSite
+            multiprocessing.freeze_support()
+            postfit, postfit_sums = setUpPostFitTasks(site_residuals,svs,Sol,info,args,mdlCtr)
+            print("Prefit, Postfit, Postfit/Prefit",prefit,postfit,postfit/prefit) #np.sqrt(prechi/numd))
+            # Now stack the postfit residuals together as they are returned            
+            #postfit = postfit + postfit_tmp
+            #for m in range(0,info['numModels']) :
+            #    # Add in the station dependent models
+            #    start = tSat + mdlCtr * numParamsPerSite 
+            #    end   = tSat + (mdlCtr+1) * numParamsPerSite
 
-                postfit_sums[start:end] = postfit_sums[start:end] + postfit_sums_tmp[tmp_start:tmp_end]
+            #    tmp_start = tSat + numParamsPerSite * m 
+            #    tmp_end   = tSat + numParamsPerSite * m + numParamsPerSite
 
-                mdlCtr = mdlCtr + 1
-        print("STATS:",postfit,postfit_sums,postfit/prefit)
+            #    postfit_sums[start:end] = postfit_sums[start:end] + postfit_sums_tmp[tmp_start:tmp_end]
+
+            #    mdlCtr = mdlCtr + 1
+        #print("STATS:",postfit,postfit_sums,postfit/prefit)
     #=======================================================================================================
     #
     #       Save the solution to a pickle data structure
