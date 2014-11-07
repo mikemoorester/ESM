@@ -383,7 +383,7 @@ def pwlNadirSiteDailyStack(site_residuals, svs, params, nadSpacing=0.1,zenSpacin
 
             # determine the elevation dependent weighting
             a,b = res.gamitWeight(data)
-            print("Gamit Weighting:",d,a,b)
+            #print("Gamit Weighting:",d,a,b)
 
             # parse the broadcast navigation file for this day to get an accurate
             # nadir angle
@@ -391,7 +391,7 @@ def pwlNadirSiteDailyStack(site_residuals, svs, params, nadSpacing=0.1,zenSpacin
             yy = minDTO.strftime("%y") 
             doy = minDTO.strftime("%j") 
             navfile = brdc_dir + 'brdc'+ doy +'0.'+ yy +'n'
-            print("Will read in the broadcast navigation file:",navfile)
+            #print("Will read in the broadcast navigation file:",navfile)
             nav = rnxN.parseFile(navfile)
 
             # Get the total number of observations for this site
@@ -492,16 +492,12 @@ def pwlNadirSiteDailyStack(site_residuals, svs, params, nadSpacing=0.1,zenSpacin
                 if siz == pco_iz:
                     print("ERROR in indices siz = pco_iz")
 
-                prefit_sum          = prefit_sum + (data[i,3]/1000.)**2.
+                prefit_sum          = prefit_sum + ((data[i,3]/1000.)**2.) *5.
                 prefit_sums[iz]     = prefit_sums[iz] + (data[i,3]/1000.)**2.
                 prefit_sums[iz+1]   = prefit_sums[iz+1] + (data[i,3]/1000.)**2.
                 prefit_sums[pco_iz] = prefit_sums[pco_iz] + (data[i,3]/1000.)**2.
                 prefit_sums[siz]    = prefit_sums[siz] + (data[i,3]/1000.)**2.
                 prefit_sums[siz+1]  = prefit_sums[siz+1] + (data[i,3]/1000.)**2.
-                #for i in indices:
-                #    for j in indices:
-                #        if Neq[i,j] < 0. :
-                #            print("NEGATIVE",Neq[i,j],i,j)
 
         prechi = prechi + np.dot(data[:,3].T,data[:,3])
         NUMD = NUMD + numd
@@ -510,7 +506,6 @@ def pwlNadirSiteDailyStack(site_residuals, svs, params, nadSpacing=0.1,zenSpacin
 
 def neqBySite(params,svs,args):
     print("\t Reading in file:",params['filename'])
-    #site_residuals = res.parseConsolidatedNumpy(filename,dt_start,dt_stop)
     site_residuals = res.parseConsolidatedNumpy(params['filename'])
     if args.model == 'pwl':
         Neq_tmp,AtWb_tmp = pwl(site_residuals,svs,args.nadir_grid)
@@ -604,15 +599,150 @@ def compressNeq(Neq,AtWb,svs,numParamsPerSat,nadir_freq):
     #
     for i in range(0,np.size(ends)):
         del_ind = range(starts[i],ends[i])
-        #print("deleting:",starts[i],ends[i])
-        #del_ind = np.array(del_ind[::-1])
-        #for d in del_ind:
         Neq = np.delete(Neq,del_ind,0)
         Neq = np.delete(Neq,del_ind,1)
         AtWb = np.delete(AtWb,del_ind)
 
     print("AFTER Neq shape:",np.shape(Neq),np.shape(nadir_freq))
     return Neq, AtWb, svs, nadir_freq
+
+def calcPostFitBySite(site_residuals,svs,Sol,params,args):
+    """
+    calcPostFitBySite()
+
+    """
+    # add one to make sure we have a linspace which includes 0.0 and 14.0
+    # add another parameter for the zenith PCO estimate
+    nadSpacing = args.nadir_grid
+    numNADS = int(14.0/nadSpacing) + 1 
+    PCOEstimates = 1
+    numSVS = np.size(svs)
+    numParamsPerSat = numNADS + PCOEstimates
+    tSat = numParamsPerSat * numSVS
+
+    brdc_dir = args.brdc_dir
+    zenSpacing = args.zen
+    numParamsPerSite = int(90.0/zenSpacing) + 1
+    tSite = numParamsPerSite*params['numModels']
+    numParams = tSat + tSite 
+   
+    postfit = 0.0
+    postfit_sums = np.zeros(numParams)
+
+    change = params['changes']
+
+    for m in range(0,int(params['numModels'])):
+        # start_yyyy and start_ddd should always be defind, however stop_dd may be absent
+        # ie no changes have ocured since the last setup
+        minVal_dt = gt.ydhms2dt(change['start_yyyy'][m],change['start_ddd'][m],0,0,0)
+
+        if np.size(change['stop_ddd']) > m  :
+            maxVal_dt = gt.ydhms2dt(change['stop_yyyy'][m],change['stop_ddd'][m],23,59,59)
+            print("Min:",minVal_dt,"Max:",maxVal_dt,m,np.size(change['stop_ddd']))
+            criterion = ( ( site_residuals[:,0] >= calendar.timegm(minVal_dt.utctimetuple()) ) &
+                    ( site_residuals[:,0] < calendar.timegm(maxVal_dt.utctimetuple()) ) )
+        else:
+            criterion = ( site_residuals[:,0] >= calendar.timegm(minVal_dt.utctimetuple()) ) 
+            maxVal_dt = gt.unix2dt(site_residuals[-1,0])
+
+        # get the residuals for this model time period
+        mind = np.array(np.where(criterion))[0]
+        model_residuals = site_residuals[mind,:]
+        diff_dt = maxVal_dt - minVal_dt
+        numDays = diff_dt.days + 1
+        print("Have a total of",numDays,"days")
+
+        # set up a lookup dictionary
+        lookup_svs = {}
+        lctr = 0
+        for sv in svs:
+            lookup_svs[str(sv)] = lctr
+            lctr+=1
+
+        site_geocentric_distance = np.linalg.norm(params['sitepos'])
+
+        for d in range(0,numDays):
+            minDTO = minVal_dt + dt.timedelta(days = d)
+            maxDTO = minVal_dt + dt.timedelta(days = d+1)
+            #print(d,"Stacking residuals on:",minDTO,maxDTO)
+            criterion = ( ( model_residuals[:,0] >= calendar.timegm(minDTO.utctimetuple()) ) &
+                          ( model_residuals[:,0] < calendar.timegm(maxDTO.utctimetuple()) ) )
+            tind = np.array(np.where(criterion))[0]
+
+            # if there are less than 300 obs, then skip to the next day
+            if np.size(tind) < 300:
+                continue
+
+            #print("rejecting any residuals greater than 100mm",np.shape(site_residuals))
+            tdata = res.reject_absVal(model_residuals[tind,:],100.)
+
+            #print("rejecting any residuals greater than 5 sigma",np.shape(tdata))
+            data = res.reject_outliers_elevation(tdata,5,0.5)
+            del tdata
+
+            # parse the broadcast navigation file for this day to get an accurate
+            # nadir angle
+            year = minDTO.strftime("%Y") 
+            yy = minDTO.strftime("%y") 
+            doy = minDTO.strftime("%j") 
+            navfile = brdc_dir + 'brdc'+ doy +'0.'+ yy +'n'
+            #print("Will read in the broadcast navigation file:",navfile)
+            nav = rnxN.parseFile(navfile)
+
+            # Get the total number of observations for this site
+            numd = np.shape(data)[0]
+            #print("Have:",numd,"observations")
+            for i in range(0,numd):
+                # work out the svn number
+                svndto =  gt.unix2dt(data[i,0])
+                svn = svnav.findSV_DTO(svdat,data[i,4],svndto)
+                svn_search = 'G{:03d}'.format(svn) 
+                ctr = lookup_svs[str(svn_search)]
+
+                # get the satellite position
+                svnpos = rnxN.satpos(data[i,4],svndto,nav)
+                satnorm = np.linalg.norm(svnpos[0])
+
+                # work out the nadir angle
+                nadir = calcNadirAngle(90.-data[i,2],site_geocentric_distance,satnorm)
+
+                niz = int(np.floor(nadir/nadSpacing))
+                iz = int((numParamsPerSat * ctr) + niz)
+                pco_iz = numParamsPerSat * (ctr+1) - 1 
+
+                nsiz = int(np.floor(data[i,2]/zenSpacing))
+                siz = int( tSat +  m*numParamsPerSite + nsiz)
+
+                # check that the indices are not overlapping
+                if iz+1 >= pco_iz:
+                    continue
+                
+                # Nadir partials..
+                Apart_1 = (1.-(nadir-niz*nadSpacing)/nadSpacing)
+                Apart_2 = (nadir-niz*nadSpacing)/nadSpacing
+                # PCO partial ...
+                Apart_3 = -np.sin(np.radians(nadir)) 
+                # Site partials
+                Apart_4 = (1.-(data[i,2]-nsiz*zenSpacing)/zenSpacing)
+                Apart_5 = (data[i,2]-nsiz*zenSpacing)/zenSpacing
+
+                postfit = postfit + ((data[i,3] - Apart_1 * Sol[iz])/1000.)**2
+                postfit_sums[iz] = postfit_sums[iz] + ((data[i,3] - Apart_1 * Sol[iz])/1000.)**2
+
+                postfit = postfit + ((data[i,3] - Apart_2 * Sol[iz+1])/1000.)**2
+                postfit_sums[iz+1] = postfit_sums[iz+1] + ((data[i,3] - Apart_2 * Sol[iz+1])/1000.)**2
+
+                postfit = postfit + ((data[i,3] - Apart_3 * Sol[pco_iz])/1000.)**2
+                postfit_sums[pco_iz] = postfit_sums[pco_iz] + ((data[i,3] - Apart_3 * Sol[pco_iz])/1000.)**2
+
+                postfit = postfit + ((data[i,3] - Apart_4 * Sol[siz])/1000.)**2
+                postfit_sums[siz] = postfit_sums[siz] + ((data[i,3] - Apart_4 * Sol[siz])/1000.)**2
+
+                postfit = postfit + ((data[i,3] - Apart_5 * Sol[siz+1])/1000.)**2
+                postfit_sums[siz+1] = postfit_sums[siz+1] + ((data[i,3] - Apart_5 * Sol[siz+1])/1000.)**2
+
+    return postfit, postfit_sums
+
 
 #=====================================
 #
@@ -642,19 +772,22 @@ if __name__ == "__main__":
     parser.add_argument('--brdc',dest='brdc_dir',default="~/gg/brdc/",help="Location of broadcast navigation files")
     parser.add_argument('--apr',dest='apr_file',default="~/gg/tables/itrf08_comb.apr", help="Location of Apriori File containing the stations position")
     parser.add_argument('--parse_only',dest='parse_only',action='store_true',default=False,help="parse the cl3 file and save the normal equations to a file (*.npz)") 
+
     parser.add_argument('--nadir_grid', dest='nadir_grid', default=0.1, type=float,help="Grid spacing to model NADIR corrections (default = 0.1 degrees)")
     parser.add_argument('--zenith_grid', dest='zen', default=0.5, type=float,help="Grid spacing to model Site corrections (default = 0.5 degrees)")
+
     parser.add_argument('-f', dest='resfile', default='',help="Consolidated one-way LC phase residuals")
     #parser.add_argument('--conf', dest='config_file', default='',help="Get options from a configuration file")
 
     parser.add_argument('-p','--path',dest='path',help="Search for all CL3 files in the directory path") 
 
-    parser.add_argument('-m','--model',dest='model',choices=['pwl','pwlSite','pwlSiteDaily'], help="Create a ESM for satellites only, or for satellites and sites")
     parser.add_argument('-l','--load',dest='load_file',help="Load stored NEQ and AtWl matrices from a file")
     parser.add_argument('--lp','--lpath',dest='load_path',help="Path to search for .npz files")
     parser.add_argument('--sstk','--save_stacked_file',dest='save_stacked_file',default=False,action='store_true',help="Path to Normal equation stacked file")   
     parser.add_argument('--stk','--stacked_file',dest='stacked_file',help="Path to Normal equation stacked file")   
+    parser.add_argument('-m','--model',dest='model',choices=['pwl','pwlSite','pwlSiteDaily'], help="Create a ESM for satellites only, or for satellites and sites")
     parser.add_argument('--cpu',dest='cpu',type=int,default=4,help="Maximum number of cpus to use")
+    parser.add_argument('--pf','--post_fit',dest='postfit',default=False,action='store_true',help="Calculate the postfit residuals")
     #===================================================================
 
     parser.add_argument("--syyyy",dest="syyyy",type=int,help="Start yyyy")
@@ -678,6 +811,7 @@ if __name__ == "__main__":
                          default=10., type=float, help="Station PCV constraint")
     parser.add_argument("--constrain_SITEWIN","--SITEWIN", dest="constraint_SITEWIN", 
                          default=1.5, type=float, help="Station Window constraint")
+
     #===================================================================
     # Plot options
     parser.add_argument('--plot',dest='plotNadir', default=False, action='store_true', help="Produce an elevation dependent plot of ESM phase residuals")
@@ -688,11 +822,6 @@ if __name__ == "__main__":
     #===================================================================
     # Debug function, not needed
     args = parser.parse_args()
-
-    #import matplotlib
-    #if args.savePlots:
-    #matplotlib.use('Agg')
-    #    print("Only saving plots")
 
     import matplotlib.pyplot as plt
 
@@ -823,7 +952,9 @@ if __name__ == "__main__":
             AtWb = np.zeros(numParams)
             nadir_freq = np.zeros((numSVS,numNADS))
             prefit = 0.0
+            postfit = 0.0
             prefit_sums = np.zeros(numParams)
+            postfit_sums = np.zeros(numParams)
 
             #=====================================================================
             # Now read in all of the numpy compressed files
@@ -840,7 +971,10 @@ if __name__ == "__main__":
                 AtWb_tmp = npzfile['atwb']
 
                 prefit = prefit + npzfile['prefit'][0]      
-                prefit_sums = np.add(prefit_sums,npzfile['prefitsums'])
+                prefit_sums_tmp = npzfile['prefitsums']
+
+                #postfit = postfit + npzfile['postfit'][0]      
+                #postfit_sums_tmp = npzfile['postfitsums']
 
                 nadir_freq = np.add(nadir_freq,npzfile['nadirfreq'])
 
@@ -852,8 +986,12 @@ if __name__ == "__main__":
 
                 # Add the svn component to the Neq
                 Neq[0:tSat, 0:tSat] = Neq[0:tSat,0:tSat] + Neq_tmp[0:tSat,0:tSat]
-                AtWb[0:tSat]         = AtWb[0:tSat] + AtWb_tmp[0:tSat]
+                AtWb[0:tSat]        = AtWb[0:tSat] + AtWb_tmp[0:tSat]
 
+                # Add the postfit sum and prefit sums for the SVN component/block together
+                prefit_sums[0:tSat]  = prefit_sums[0:tSat] + prefit_sums_tmp[0:tSat]
+                #postfit_sums[0:tSat] = postfit_sums[0:tSat] + postfit_sums_tmp[0:tSat]
+                
                 #===================================
                 # Loop over each model 
                 #===================================
@@ -866,6 +1004,8 @@ if __name__ == "__main__":
                     tmp_end   = tSat + numParamsPerSite * m + numParamsPerSite
 
                     AtWb[start:end] = AtWb[start:end] + AtWb_tmp[tSat:(tSat+numParamsPerSite)]
+                    prefit_sums[start:end]  = prefit_sums[start:end] + prefit_sums_tmp[tSat:(tSat+numParamsPerSite)]
+                    #postfit_sums[start:end] = postfit_sums[start:end] + prefit_sums_tmp[tSat:(tSat+numParamsPerSite)]
                     #
                     #   ------------------------------------------------
                     #  | SVN         | svn + site | svn + site2 | ....
@@ -886,7 +1026,8 @@ if __name__ == "__main__":
 
             if args.save_file:
                 prefitA = [prefit]
-                np.savez_compressed('consolidated.npz',neq=Neq,atwb=AtWb,svs=svs,nadirfreq=nadir_freq,prefit=prefitA,prefitsums=prefit_sums)
+                postfitA = [postfit]
+                np.savez_compressed('consolidated.npz',neq=Neq,atwb=AtWb,svs=svs,nadirfreq=nadir_freq,prefit=prefitA,prefitsums=prefit_sums,postfit=postfitA,postfitsums=postfit_sums)
 
             # remove the unwanted observations after it has been saved to disk
             # as we may want to add to Neq together, which may have observations to satellites not seen in the Neq..
@@ -1140,8 +1281,8 @@ if __name__ == "__main__":
 
 
     print("Now trying an inverse of Neq",np.shape(Neq))
-    #Cov = np.linalg.pinv(Neq)
-    Cov = sp.linalg.pinv(Neq)
+    Cov = np.linalg.pinv(Neq)
+    #Cov = sp.linalg.pinv(Neq)
     #Cho = np.linalg.cholesky(Neq)
     #Cho_inv = np.linalg.pinv(Cho)
     #Cov = np.dot(Cho_inv.T,Cho_inv)
@@ -1157,6 +1298,42 @@ if __name__ == "__main__":
     postchi = prechi - np.dot(np.array(AtWb).T,np.array(Sol))
     print("STATS:",numd,np.sqrt(prechi/numd),np.sqrt(postchi/numd),np.sqrt((prechi-postchi)/numd))#,aic,bic)
     print("stats:",prefit,prefit_sums)
+
+    # calculate the post-fit residuals
+    if args.postfit:
+        postfit = 0
+        postfit_sums = np.zeros(numParams)
+        mdlCtr = 0
+        for f in range(0,np.size(cl3files)):
+            filename    = os.path.basename(cl3files[f])
+            siteID      = filename[0:4]
+            sdata       = gsf.parseSite(args.station_file,siteID.upper())
+            changes     = gsf.determineESMChanges(dt_start,dt_stop,sdata)
+            sitepos     = gapr.getStationPos(args.apr_file,siteID)
+            numModels   = numModels + np.size(changes['ind']) + 1
+            info = {}
+            info['filename']  = cl3files[f]
+            info['basename']  = filename
+            info['site']      = siteID
+            info['numModels'] = np.size(changes['ind']) + 1 
+            info['changes']   = changes
+            info['sitepos']   = sitepos
+
+            site_residuals = res.parseConsolidatedNumpy(info['filename'])
+            postfit_tmp, postfit_sums_tmp = calcPostFitBySite(site_residuals,svs,Sol,info,args)
+            postfit = postfit + postfit_tmp
+            for m in range(0,info['numModels']) :
+                # Add in the station dependent models
+                start = tSat + mdlCtr * numParamsPerSite 
+                end   = tSat + (mdlCtr+1) * numParamsPerSite
+
+                tmp_start = tSat + numParamsPerSite * m 
+                tmp_end   = tSat + numParamsPerSite * m + numParamsPerSite
+
+                postfit_sums[start:end] = postfit_sums[start:end] + postfit_sums_tmp[tmp_start:tmp_end]
+
+                mdlCtr = mdlCtr + 1
+        print("STATS:",postfit,postfit_sums,postfit/prefit)
     #=======================================================================================================
     #
     #       Save the solution to a pickle data structure

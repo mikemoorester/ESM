@@ -20,7 +20,6 @@ import antenna as ant
 import residuals as res
 import gpsTime as gt
 import GamitStationFile as gsf
-#import time
 import svnav
 
 def loglikelihood(meas,model):
@@ -213,7 +212,6 @@ def modelStats(model,data, azSpacing=0.5,zenSpacing=0.5):
                 # disregard any observation above 80 in zenith, too noisy
                 if j < 80. + zenSpacing:
                     criterion = (tmp[:,1] < (j + zenSpacing/2.)) & (tmp[:,1] > (j - zenSpacing/2.) ) 
-                    indZ = np.array(np.where(criterion))
                     tmpZ = np.array( tmp[indZ[:],2] )
                     if indZ.size > 3 and not np.isnan(model[iCtr,jCtr]): # and (model[iCtr,jCtr] > 0.00001 or model[iCtr,jCtr] < -0.00001):
                         test_data = reject_outliers(reject_abs( tmp[indZ,2],70. ),5.)
@@ -796,9 +794,12 @@ def pwl(site_residuals, azSpacing=0.5,zenSpacing=0.5):
 
     numd = np.shape(data)[0]
     numZD = int(90.0/zenSpacing) + 1
-    numAZ = int(360./zenSpacing)
+    numAZ = int(360./azSpacing)
+    print("numAZ",numAZ)
     pwl_All = np.zeros((numAZ,numZD))
     pwlSig_All = np.zeros((numAZ,numZD))
+    #pwl_All = np.zeros((numZD,numAZ))
+    #pwlSig_All = np.zeros((numZD,numAZ))
 
     for j in range(0,numAZ):
         # Find only those value within this azimuth bin:
@@ -817,11 +818,14 @@ def pwl(site_residuals, azSpacing=0.5,zenSpacing=0.5):
         # will let it vary more. a large value -> 1 will force the model to be closer to 0
         Neq = np.eye(numZD,dtype=float) * 0.001
         Apart = np.zeros((numd,numZD))
-
+        #aiz = j* int(np.floor(360./zenSpacing))
+       
         for i in range(0,numd):
-            iz = int(np.floor(azData[i,2]/zenSpacing))
+            iz = int(np.floor(azData[i,2]/zenSpacing)) #+ aiz
             Apart[i,iz] = (1.-(azData[i,2]-float(iz)*zenSpacing)/zenSpacing)
             Apart[i,iz+1] = (azData[i,2]-float(iz)*zenSpacing)/zenSpacing
+            #Apart_1 = (1.-(azData[i,2]-float(iz)*zenSpacing)/zenSpacing)
+            #Apart_2 = (azData[i,2]-float(iz)*zenSpacing)/zenSpacing
 
         prechi = np.dot(azData[:,3].T,azData[:,3])
 
@@ -831,6 +835,7 @@ def pwl(site_residuals, azSpacing=0.5,zenSpacing=0.5):
             Bvec_complete.append(val)
         Cov = np.linalg.pinv(Neq)
         Sol = np.dot(Cov,Bvec)
+
         for val in Sol:
             Sol_complete.append(val)
 
@@ -838,11 +843,6 @@ def pwl(site_residuals, azSpacing=0.5,zenSpacing=0.5):
         pwlsig = np.sqrt(np.diag(Cov) *postchi/numd)
         
         model = np.dot(Apart,Sol)
-        #f = loglikelihood(azData[:,3],model)
-        #dof = numd - np.shape(Sol)[0]
-        #aic = calcAIC(f,dof)
-        #bic = calcBIC(f,dof,numd)
-        #print("STATS:",numd,np.sqrt(prechi/numd),np.sqrt(postchi/numd),np.sqrt((prechi-postchi)/numd),aic,bic)
 
         for d in range(0,numd):
             meas_complete.append(azData[d,3])
@@ -851,6 +851,12 @@ def pwl(site_residuals, azSpacing=0.5,zenSpacing=0.5):
         pwl_All[j,:] = Sol 
         pwlSig_All[j,:] = pwlsig
 
+        #print("Sol:",Sol)
+        #print("PWL:",pwl_All[j,:])
+
+        #pwl_All[:,j] = Sol 
+        #print("Sol:",np.shape(Sol),np.shape(pwl_All))
+        #pwlSig_All[:,j] = pwlsig
         del Sol,pwlsig,Cov,Bvec,Neq,Apart,azData,ind
 
     # Calculate the AIC and BIC values...
@@ -1439,78 +1445,132 @@ if __name__ == "__main__":
 
                 plt.tight_layout()
 
-            #if args.polar:
+            if args.polar:
+                az = np.linspace(0, 360.-0.5, int(360./0.5))
+                zz = np.linspace(0, 90, int(90./0.5)+1)
+
+                # Plot the ESM... (antenna PCV + residuals)
+                fig2 = plt.figure(figsize=(3.62, 2.76))
+                ax = fig2.add_subplot(111,polar=True)
+
+                ax.set_theta_offset(np.radians(90.))
+                ax.set_theta_direction(-1)
+                ax.set_ylim([0,1])
+                ax.set_rgrids((0.00001, np.radians(20)/np.pi*2, 
+                                    np.radians(40)/np.pi*2,
+                                    np.radians(60)/np.pi*2,
+                                    np.radians(80)/np.pi*2),
+                                    labels=('0', '20', '40', '60', '80'),angle=180)
+
+                ma,mz = np.meshgrid(az,zz,indexing='ij')
+                ma = ma.reshape(ma.size,)
+                mz = mz.reshape(mz.size,)
+
+                print("MED:",np.shape(med),np.shape(ma),np.shape(mz))
+                print("ma:",ma[0:181])
+                print("mz:",mz[0:181])
+                print("ma:",ma[-181:])
+                print("mz:",mz[-181:])
+                #polar = ax.scatter(np.radians(ma),np.radians(mz)/np.pi*2., c=models[ctr-1,:,:,0], s=5, alpha=1., cmap=cm.RdBu,vmin=-15,vmax=15, lw=0)
+                #polar = ax.scatter(np.radians(ma), np.radians(mz)/np.pi*2., c=med[:,:], s=5, alpha=1.,cmap=cm.RdBu,vmin=-15,vmax=15, lw=0)
+                #polar = ax.scatter(np.radians(ma), np.radians(mz)/np.pi*2., c=med, s=15, cmap=cm.RdBu,vmin=-15,vmax=15, lw=0)
+                #polar = ax.scatter(np.radians(mz)/np.pi*2., np.radians(ma), c=med, s=15, cmap=cm.RdBu,vmin=-15,vmax=15, lw=0)
+                #polar.set_alpha(0.75)
+                #az = np.linspace(0, 360.-0.5, int(360./0.5))
+                #zz = np.linspace(0, 90, int(90./0.5)+1)
+                #ictr = 0
+                #for zz in np.linspace(0, 90, int(90./0.5)+1):
+                #    jctr = 0
+                #    for az in np.linspace(0, 360.-0.5, int(360./0.5)):
+                #        ax.scatter(np.radians(az), np.radians(zz)/np.pi*2., c=med[ictr,jctr], s=5, cmap=cm.RdBu,vmin=-15,vmax=15, lw=0)
+                #    ictr += 1
+
+                    
+                #   polar = ax2.scatter(np.radians(ma), np.radians(mz)/np.pi*2., c=med, s=5, alpha=1., cmap=cm.RdBu,vmin=-15,vmax=15, lw=0)
+                #cbar = fig.colorbar(polar,shrink=0.75,pad=.10)
+                #cbar.ax.tick_params(labelsize=8)
+                #cbar.set_label(args.site+' ESM (mm)',size=8)
+
+                for item in ([ax.title, ax.xaxis.label, ax.yaxis.label] +
+                        ax.get_xticklabels() + ax.get_yticklabels()):
+                    item.set_fontsize(8)
+
+                plt.tight_layout()
+
+            if args.polar or args.elevation:
+                plt.show()
+
     #===========================================================================================
     # If we want an elevation or polar plot....
     #===========================================================================================
-    if args.elevation or args.polar :
-        import matplotlib.pyplot as plt
-        from matplotlib import cm
+#   if args.elevation or args.polar :
+#       import matplotlib.pyplot as plt
+#       from matplotlib import cm
 
-        if args.polar :
-            az = np.linspace(0, 360, int(360./0.5)+1)
-            zz = np.linspace(0, 90, int(90./0.5)+1)
+#       if args.polar :
+#           az = np.linspace(0, 360, int(360./0.5)+1)
+#           zz = np.linspace(0, 90, int(90./0.5)+1)
 
-            # Plot the ESM... (antenna PCV + residuals)
-            fig = plt.figure(figsize=(3.62, 2.76))
-            ax = fig.add_subplot(111,polar=True)
+#           # Plot the ESM... (antenna PCV + residuals)
+#           fig = plt.figure(figsize=(3.62, 2.76))
+#           ax = fig.add_subplot(111,polar=True)
 
-            ax.set_theta_direction(-1)
-            ax.set_theta_offset(np.radians(90.))
-            ax.set_ylim([0,1])
-            ax.set_rgrids((0.00001, np.radians(20)/np.pi*2, 
-                                    np.radians(40)/np.pi*2,
-                                    np.radians(60)/np.pi*2,
-                                    np.radians(80)/np.pi*2),
-                                    labels=('0', '20', '40', '60', '80'),angle=180)
+#           ax.set_theta_direction(-1)
+#           ax.set_theta_offset(np.radians(90.))
+#           ax.set_ylim([0,1])
+#           ax.set_rgrids((0.00001, np.radians(20)/np.pi*2, 
+#                                   np.radians(40)/np.pi*2,
+#                                   np.radians(60)/np.pi*2,
+#                                   np.radians(80)/np.pi*2),
+#                                   labels=('0', '20', '40', '60', '80'),angle=180)
 
-            ma,mz = np.meshgrid(az,zz,indexing='ij')
-            ma = ma.reshape(ma.size,)
-            mz = mz.reshape(mz.size,)
+#           ma,mz = np.meshgrid(az,zz,indexing='ij')
+#           ma = ma.reshape(ma.size,)
+#           mz = mz.reshape(mz.size,)
 
-            polar = ax.scatter(np.radians(ma), np.radians(mz)/np.pi*2., c=models[0,:,:,0], s=5, alpha=1., cmap=cm.RdBu,vmin=-15,vmax=15, lw=0)
+#           polar = ax.scatter(np.radians(ma), np.radians(mz)/np.pi*2., c=models[0,:,:,0], s=5, alpha=1., cmap=cm.RdBu,vmin=-15,vmax=15, lw=0)
 
-            cbar = fig.colorbar(polar,shrink=0.75,pad=.10)
-            cbar.ax.tick_params(labelsize=8)
-            cbar.set_label(args.site+' ESM (mm)',size=8)
+#           cbar = fig.colorbar(polar,shrink=0.75,pad=.10)
+#           cbar.ax.tick_params(labelsize=8)
+#           cbar.set_label(args.site+' ESM (mm)',size=8)
 
-            for item in ([ax.title, ax.xaxis.label, ax.yaxis.label] +
-                    ax.get_xticklabels() + ax.get_yticklabels()):
-                item.set_fontsize(8)
+#           for item in ([ax.title, ax.xaxis.label, ax.yaxis.label] +
+#                   ax.get_xticklabels() + ax.get_yticklabels()):
+#               item.set_fontsize(8)
 
-            plt.tight_layout()
+#           plt.tight_layout()
 
-            # Plot the blkm of the residuals
-            fig2 = plt.figure(figsize=(3.62, 2.76))
-            ax2 = fig2.add_subplot(111,polar=True)
+#           # Plot the blkm of the residuals
+#           fig2 = plt.figure(figsize=(3.62, 2.76))
+#           ax2 = fig2.add_subplot(111,polar=True)
 
-            ax2.set_theta_direction(-1)
-            ax2.set_theta_offset(np.radians(90.))
-            ax2.set_ylim([0,1])
-            ax2.set_rgrids((0.00001, np.radians(20)/np.pi*2, 
-                                    np.radians(40)/np.pi*2,
-                                    np.radians(60)/np.pi*2,
-                                    np.radians(80)/np.pi*2),
-                                    labels=('0', '20', '40', '60', '80'),angle=180)
+#           ax2.set_theta_direction(-1)
+#           ax2.set_theta_offset(np.radians(90.))
+#           ax2.set_ylim([0,1])
+#           ax2.set_rgrids((0.00001, np.radians(20)/np.pi*2, 
+#                                   np.radians(40)/np.pi*2,
+#                                   np.radians(60)/np.pi*2,
+#                                   np.radians(80)/np.pi*2),
+#                                   labels=('0', '20', '40', '60', '80'),angle=180)
 
-            ma,mz = np.meshgrid(az,zz,indexing='ij')
-            ma = ma.reshape(ma.size,)
-            mz = mz.reshape(mz.size,)
+#           ma,mz = np.meshgrid(az,zz,indexing='ij')
+#           ma = ma.reshape(ma.size,)
+#           mz = mz.reshape(mz.size,)
 
-            polar = ax2.scatter(np.radians(ma), np.radians(mz)/np.pi*2., c=med, s=5, alpha=1., cmap=cm.RdBu,vmin=-15,vmax=15, lw=0)
+#           polar = ax2.scatter(np.radians(ma), np.radians(mz)/np.pi*2., c=med, s=5, alpha=1., cmap=cm.RdBu,vmin=-15,vmax=15, lw=0)
 
-            cbar = fig2.colorbar(polar,shrink=0.75,pad=.10)
-            cbar.ax.tick_params(labelsize=8)
-            cbar.set_label(args.site+' L3 Residuals (mm)',size=8)
+#           cbar = fig2.colorbar(polar,shrink=0.75,pad=.10)
+#           cbar.ax.tick_params(labelsize=8)
+#           cbar.set_label(args.site+' L3 Residuals (mm)',size=8)
 
-            for item in ([ax2.title, ax2.xaxis.label, ax2.yaxis.label] +
-                    ax2.get_xticklabels() + ax2.get_yticklabels()):
-                item.set_fontsize(8)
+#           for item in ([ax2.title, ax2.xaxis.label, ax2.yaxis.label] +
+#                   ax2.get_xticklabels() + ax2.get_yticklabels()):
+#               item.set_fontsize(8)
 
-            plt.tight_layout()
+#           plt.tight_layout()
 
 
-        if args.elevation :
+#       if args.elevation :
             #===========================================================
             # TODO: loop over changes in equipment...
             #===========================================================
@@ -1620,7 +1680,7 @@ if __name__ == "__main__":
             #    item.set_fontsize(8)
 
             #plt.tight_layout()
-            plt.show()
+            #plt.show()
     #===================================================
     # print the esm model residuals + antenna to an ANTEX file 
     #===================================================
