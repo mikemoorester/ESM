@@ -437,10 +437,6 @@ def pwlNadirSiteDailyStack(site_residuals, svs, params, nadSpacing=0.1,zenSpacin
                 Apart_2 = (nadir-niz*nadSpacing)/nadSpacing
                 #
                 # PCO partial ...
-                # soln 1
-                ##Apart_3 = 1./np.sin(np.radians(nadir)) 
-                #
-                # soln4
                 Apart_3 = -np.sin(np.radians(nadir)) 
 
                 # Site partials
@@ -556,7 +552,7 @@ def setUpTasks(cl3files,svs,opts,params):
 
     return prechi,numd
    
-def compressNeq(Neq,AtWb,svs,numParamsPerSat,nadir_freq):
+def compressNeq(Neq,AtWb,svs,numParamsPerSat,nadir_freq,prefit_sums):
     # check for any rows/ columns without any observations, if they are empty remove the parameters
     satCtr = 0
     starts = []
@@ -602,11 +598,12 @@ def compressNeq(Neq,AtWb,svs,numParamsPerSat,nadir_freq):
         Neq = np.delete(Neq,del_ind,0)
         Neq = np.delete(Neq,del_ind,1)
         AtWb = np.delete(AtWb,del_ind)
+        prefit_sums = np.delete(prefit_sums,del_ind)
 
     print("AFTER Neq shape:",np.shape(Neq),np.shape(nadir_freq))
-    return Neq, AtWb, svs, nadir_freq
+    return Neq, AtWb, svs, nadir_freq, prefit_sums
 
-def calcPostFitBySite(site_residuals,svs,Sol,params,args,modelNum):
+def calcPostFitBySite(cl3file,svs,Sol,params,args,modelNum):
     """
     calcPostFitBySite()
 
@@ -620,25 +617,28 @@ def calcPostFitBySite(site_residuals,svs,Sol,params,args,modelNum):
     numParamsPerSat = numNADS + PCOEstimates
     tSat = numParamsPerSat * numSVS
 
-    brdc_dir = args.brdc_dir
     zenSpacing = args.zen
     numParamsPerSite = int(90.0/zenSpacing) + 1
     tSite = numParamsPerSite*params['numModels']
     numParams = tSat + tSite 
    
+    brdc_dir = args.brdc_dir
+
     postfit = 0.0
     postfit_sums = np.zeros(numParams)
 
     change = params['changes']
 
-    for m in range(modelNum,modelNum+int(params['numModels'])):
+    site_residuals = res.parseConsolidatedNumpy(cl3file)
+
+    for m in range(0,int(params['numModels'])):
         # start_yyyy and start_ddd should always be defind, however stop_dd may be absent
         # ie no changes have ocured since the last setup
         minVal_dt = gt.ydhms2dt(change['start_yyyy'][m],change['start_ddd'][m],0,0,0)
 
         if np.size(change['stop_ddd']) > m  :
             maxVal_dt = gt.ydhms2dt(change['stop_yyyy'][m],change['stop_ddd'][m],23,59,59)
-            print("Min:",minVal_dt,"Max:",maxVal_dt,m,np.size(change['stop_ddd']))
+            #print("Min:",minVal_dt,"Max:",maxVal_dt,m,np.size(change['stop_ddd']))
             criterion = ( ( site_residuals[:,0] >= calendar.timegm(minVal_dt.utctimetuple()) ) &
                     ( site_residuals[:,0] < calendar.timegm(maxVal_dt.utctimetuple()) ) )
         else:
@@ -713,6 +713,7 @@ def calcPostFitBySite(site_residuals,svs,Sol,params,args,modelNum):
                 nsiz = int(np.floor(data[i,2]/zenSpacing))
                 siz = int( tSat +  m*numParamsPerSite + nsiz)
 
+                sol_site = int( tSat +  (m+modelNum)*numParamsPerSite + nsiz)
                 # check that the indices are not overlapping
                 if iz+1 >= pco_iz:
                     continue
@@ -736,54 +737,151 @@ def calcPostFitBySite(site_residuals,svs,Sol,params,args,modelNum):
                 postfit_sums[pco_iz] = postfit_sums[pco_iz] + ((data[i,3] - Apart_3 * Sol[pco_iz])/1000.)**2
 
                 postfit = postfit + ((data[i,3] - Apart_4 * Sol[siz])/1000.)**2
-                postfit_sums[siz] = postfit_sums[siz] + ((data[i,3] - Apart_4 * Sol[siz])/1000.)**2
+                postfit_sums[siz] = postfit_sums[siz] + ((data[i,3] - Apart_4 * Sol[sol_site])/1000.)**2
 
                 postfit = postfit + ((data[i,3] - Apart_5 * Sol[siz+1])/1000.)**2
-                postfit_sums[siz+1] = postfit_sums[siz+1] + ((data[i,3] - Apart_5 * Sol[siz+1])/1000.)**2
+                postfit_sums[siz+1] = postfit_sums[siz+1] + ((data[i,3] - Apart_5 * Sol[sol_site+1])/1000.)**2
 
-    return postfit, postfit_sums
+    return postfit, postfit_sums, params, modelNum
 
-def setUpPostFitTasks(site_residuals,svs,Sol,info,args,mdlCtr):
-    prechi = 0
-    numd = 0
+def setUpPostFitTasks(cl3files,svs,Sol,params,args,tSat,numParamsPerSite,tParams):
+    postfit = 0
+    postfit_sums = np.zeros(tParams)
     print('cpu_count() = {:d}\n'.format(multiprocessing.cpu_count()))
     NUMBER_OF_PROCESSES = multiprocessing.cpu_count()
 
-    if opts.cpu < NUMBER_OF_PROCESSES:
-        NUMBER_OF_PROCESSES = int(opts.cpu)
-
-    #print("Creating a pool of {:d} processes".format(NUMBER_OF_PROCESSES))
+    if args.cpu < NUMBER_OF_PROCESSES:
+        NUMBER_OF_PROCESSES = int(args.cpu)
 
     pool = multiprocessing.Pool(NUMBER_OF_PROCESSES)
 
     # Submit the tasks
     results = []
+    mdlCtr = 0
+
     for i in range(0,np.size(cl3files)) :
         print("Submitting job:",params[i]['site'])
-        results.append(pool.apply_async(neqBySite,(params[i],svs,opts)))
+        info = params[i]
+        results.append(pool.apply_async(calcPostFitBySite,(cl3files[i],svs,Sol,params[i],args,mdlCtr)))
+        mdlCtr = mdlCtr + params[i]['numModels']
 
     # Wait for all of them to finish before moving on
     for r in results:
-        #print("\t Waiting:",r.wait())
         r.wait()
         postfit_tmp, postfit_sums_tmp, info, mdlCtr = r.get()
         postfit = postfit + postfit_tmp
+        postfit_sums[0:tSat] = postfit_sums[0:tSat] + postfit_sums_tmp[0:tSat]
 
-        print("RGET:", postfit)
-        for m in range(mdlCtr,info['numModels']) :
+        #print("RGET:",info['site'],info['numModels'],postfit,mdlCtr,numParamsPerSite)
+        ctr = 0
+        for m in range(mdlCtr,(info['numModels']+mdlCtr)) :
             # Add in the station dependent models
-            start = tSat + mdlCtr * numParamsPerSite 
-            end   = tSat + (mdlCtr+1) * numParamsPerSite
+            start = tSat + m * numParamsPerSite  
+            end   = tSat + (m+1) * numParamsPerSite 
+
+            tmp_start = tSat + numParamsPerSite * ctr 
+            tmp_end   = tSat + numParamsPerSite * (ctr+1) # + numParamsPerSite 
+            #print(m,start,end,tmp_start,tmp_end,np.size(Sol))
+            #print("postfit_sums",start,end,np.size(postfit_sums))
+            #print("postfit_sums_tmp",tmp_start,tmp_end,np.size(postfit_sums_tmp))
+            postfit_sums[start:end] = postfit_sums[start:end] + postfit_sums_tmp[tmp_start:tmp_end]
+
+            ctr += 1
+
+    return postfit, postfit_sums
+
+def prepareSites(cl3files,dt_start,dt_end,args):
+    #=====================================================================
+    # Work out how many station models need to be created 
+    #=====================================================================
+    numModels = 0
+    params = []
+
+    for f in range(0,np.size(cl3files)):
+        filename    = os.path.basename(cl3files[f])
+        siteID      = filename[0:4]
+        sdata       = gsf.parseSite(args.station_file,siteID.upper())
+        changes     = gsf.determineESMChanges(dt_start,dt_stop,sdata)
+        sitepos     = gapr.getStationPos(args.apr_file,siteID)
+        numModels   = numModels + np.size(changes['ind']) + 1
+        info = {}
+        info['filename']  = cl3files[f]
+        info['basename']  = filename
+        info['site']      = siteID
+        info['numModels'] = np.size(changes['ind']) + 1 
+        info['changes']   = changes
+        info['sitepos']   = sitepos
+        params.append(info)
+
+    return params, numModels
+
+def stackStationNeqs(Neq,AtWb,prefit,prefit_sums,nadir_freq,siteIDList,params,tSat):
+    #=====================================================================
+    # Now read in all of the numpy compressed files
+    #=====================================================================
+    nctr = 0
+    totalSiteModels = 0
+
+    for f in range(0,np.size(params)):
+        #if args.resfile or args.path :
+        #    filename = os.path.basename(cl3files[f])
+        #    params[f]['npzfile'] = params[f]['filename']+'.npz'
+            
+        nfile = params[f]['npzfile'] 
+
+        npzfile = np.load(nfile)
+        Neq_tmp  = npzfile['neq']
+        AtWb_tmp = npzfile['atwb']
+
+        prefit = prefit + npzfile['prefit'][0]      
+        prefit_sums_tmp = npzfile['prefitsums']
+
+        nadir_freq = np.add(nadir_freq,npzfile['nadirfreq'])
+
+        # only need one copy of the svs array, they should be eactly the same
+        if nctr == 0:
+            svs_tmp  = npzfile['svs']
+            svs = np.sort(svs_tmp)
+            del svs_tmp
+
+        # Add the svn component to the Neq
+        Neq[0:tSat, 0:tSat] = Neq[0:tSat,0:tSat] + Neq_tmp[0:tSat,0:tSat]
+        AtWb[0:tSat]        = AtWb[0:tSat] + AtWb_tmp[0:tSat]
+
+        # Add the postfit sum and prefit sums for the SVN component/block together
+        prefit_sums[0:tSat]  = prefit_sums[0:tSat] + prefit_sums_tmp[0:tSat]
+                
+        #===================================
+        # Loop over each model 
+        #===================================
+        for m in range(0,params[f]['numModels']) :
+            # Add in the station dependent models
+            start = tSat + nctr * numParamsPerSite 
+            end = tSat + (nctr+1) * numParamsPerSite
 
             tmp_start = tSat + numParamsPerSite * m 
             tmp_end   = tSat + numParamsPerSite * m + numParamsPerSite
 
-            postfit_sums[start:end] = postfit_sums[start:end] + postfit_sums_tmp[tmp_start:tmp_end]
+            AtWb[start:end] = AtWb[start:end] + AtWb_tmp[tSat:(tSat+numParamsPerSite)]
+            prefit_sums[start:end]  = prefit_sums[start:end] + prefit_sums_tmp[tSat:(tSat+numParamsPerSite)]
+            #
+            #   ------------------------------------------------
+            #  | SVN         | svn + site | svn + site2 | ....
+            #  | svn + site  | site       | 0           | ....
+            #  | svn + site2 | 0          | site2       | ....
+            #
 
-            mdlCtr = mdlCtr + 1
-        print("STATS:",postfit,postfit_sums,postfit/prefit)
-        #postfit_tmp, postfit_sums_tmp, mdlCtr_tmp = setUpPostFitTasks(site_residuals,svs,Sol,info,args,mdlCtr)
-    return postfit, postfit_sums
+            # Add in the site block 
+            Neq[start:end,start:end] = Neq[start:end,start:end] + Neq_tmp[tmp_start:tmp_end,tmp_start:tmp_end]
+
+            # Adding in the correlation with the SVN and site
+            Neq[0:tSat,start:end] = Neq[0:tSat,start:end] + Neq_tmp[0:tSat,tmp_start:tmp_end]
+            Neq[start:end,0:tSat] = Neq[start:end,0:tSat] + Neq_tmp[tmp_start:tmp_end,0:tSat]
+            nctr += 1
+            totalSiteModels = totalSiteModels + 1
+            siteIDList.append(params[f]['site'])
+
+    return Neq, AtWb, svs, prefit, prefit_sums, totalSiteModels, siteIDList, nadir_freq
 
 #=====================================
 #
@@ -814,30 +912,43 @@ if __name__ == "__main__":
     parser.add_argument('--apr',dest='apr_file',default="~/gg/tables/itrf08_comb.apr", help="Location of Apriori File containing the stations position")
     parser.add_argument('--parse_only',dest='parse_only',action='store_true',default=False,help="parse the cl3 file and save the normal equations to a file (*.npz)") 
 
-    parser.add_argument('--nadir_grid', dest='nadir_grid', default=0.1, type=float,help="Grid spacing to model NADIR corrections (default = 0.1 degrees)")
-    parser.add_argument('--zenith_grid', dest='zen', default=0.5, type=float,help="Grid spacing to model Site corrections (default = 0.5 degrees)")
-
     parser.add_argument('-f', dest='resfile', default='',help="Consolidated one-way LC phase residuals")
-    #parser.add_argument('--conf', dest='config_file', default='',help="Get options from a configuration file")
 
     parser.add_argument('-p','--path',dest='path',help="Search for all CL3 files in the directory path") 
 
     parser.add_argument('-l','--load',dest='load_file',help="Load stored NEQ and AtWl matrices from a file")
     parser.add_argument('--lp','--lpath',dest='load_path',help="Path to search for .npz files")
+
+    parser.add_argument('--sf1',dest='solutionfile1',help="Pickle Solution file")
+    parser.add_argument('--sf2',dest='solutionfile2',help="Numpy Solution file")
+
+    #===================================================================
+    # Output options
+    #===================================================================
+    
     parser.add_argument('--sstk','--save_stacked_file',dest='save_stacked_file',default=False,action='store_true',help="Path to Normal equation stacked file")   
     parser.add_argument('--stk','--stacked_file',dest='stacked_file',help="Path to Normal equation stacked file")   
+    parser.add_argument('--save',dest='save_file',default=False, action='store_true',help="Save the Neq and Atwl matrices into numpy compressed format (npz)")
+    parser.add_argument('--save_solution','--ss',dest='solution',default='solution.pkl',help="Save the Solution vector and meta data as a pickle object, needs save_file flag to be selected")#,META="Pickle filename")
+
+    #===================================================================
+    # Processing options
+    #===================================================================
+    parser.add_argument('--nadir_grid', dest='nadir_grid', default=0.1, type=float,help="Grid spacing to model NADIR corrections (default = 0.1 degrees)")
+    parser.add_argument('--zenith_grid', dest='zen', default=0.5, type=float,help="Grid spacing to model Site corrections (default = 0.5 degrees)")
     parser.add_argument('-m','--model',dest='model',choices=['pwl','pwlSite','pwlSiteDaily'], help="Create a ESM for satellites only, or for satellites and sites")
     parser.add_argument('--cpu',dest='cpu',type=int,default=4,help="Maximum number of cpus to use")
     parser.add_argument('--pf','--post_fit',dest='postfit',default=False,action='store_true',help="Calculate the postfit residuals")
+    parser.add_argument('--cholesky',dest='cholesky',default=False,action='store_true',help="Use the cholesky inverse")
     #===================================================================
-
+    # Time period to check for satellite parameters
     parser.add_argument("--syyyy",dest="syyyy",type=int,help="Start yyyy")
     parser.add_argument("--sdoy","--sddd",dest="sdoy",type=int,default=0,help="Start doy")
     parser.add_argument("--eyyyy",dest="eyyyy",type=int,help="End yyyyy")
     parser.add_argument("--edoy","--eddd",dest="edoy",type=int,default=365,help="End doy")
 
     #===================================================================
-   
+    # Constraints 
     parser.add_argument("--no_constraints",dest="apply_constraints",default=True,action='store_false',
                             help="Dont apply constraints")
     parser.add_argument("--nwc","--no_window_contraints",dest="window_constraint",default=True,action='store_false',
@@ -858,8 +969,6 @@ if __name__ == "__main__":
     parser.add_argument('--plot',dest='plotNadir', default=False, action='store_true', help="Produce an elevation dependent plot of ESM phase residuals")
     parser.add_argument('--ps','--plot_save',dest='savePlots',default=False,action='store_true', help="Save the plots in png format")
     
-    parser.add_argument('--save',dest='save_file',default=False, action='store_true',help="Save the Neq and Atwl matrices into numpy compressed format (npz)")
-    parser.add_argument('--save_solution','--ss',dest='solution',default='solution.pkl',help="Save the Solution vector and meta data as a pickle object, needs save_file flag to be selected")#,META="Pickle filename")
     #===================================================================
     # Debug function, not needed
     args = parser.parse_args()
@@ -868,11 +977,11 @@ if __name__ == "__main__":
 
     # expand any home directory paths (~) to the full path, otherwise python won't find the file
     if args.resfile : args.resfile = os.path.expanduser(args.resfile)
-    args.antex = os.path.expanduser(args.antex)
-    args.svnavFile = os.path.expanduser(args.svnavFile)
+    args.antex        = os.path.expanduser(args.antex)
+    args.svnavFile    = os.path.expanduser(args.svnavFile)
     args.station_file = os.path.expanduser(args.station_file)
-    args.brdc_dir = os.path.expanduser(args.brdc_dir) 
-    args.apr_file = os.path.expanduser(args.apr_file) 
+    args.brdc_dir     = os.path.expanduser(args.brdc_dir) 
+    args.apr_file     = os.path.expanduser(args.apr_file) 
 
     svdat = []
     nadirData = {}
@@ -883,82 +992,130 @@ if __name__ == "__main__":
     siteIDList = []
     prechis = []
     numds = []
-
+    params = []
     numParams = 0
     prechi = 0
     numd = 0
 
-    if args.model: 
-        #===================================================================
-        # get the antenna information from an antex file
-        antennas = ant.parseANTEX(args.antex)
+    # Number of Parameters
+    numNADS = int(14.0/args.nadir_grid) + 1 
+    PCOEstimates = 1
 
-        if args.resfile :
-            print("Reading in:", args.resfile)
-            cl3files.append(args.resfile)
-            siteIDList.append(os.path.basename(args.resfile)[0:4]+"_model_1")
-        elif args.path:
-            print("Checking {:s} for CL3 files".format(args.path))
-            phsRGX = re.compile('.CL3$')
-            for root, dirs, files in os.walk(args.path):
+    numParamsPerSat = numNADS + PCOEstimates
+    numParamsPerSite = int(90./args.zen) + 1 
+    #===================================================================
+    # Check to see if we need to read in a consolidate residual file (*.CL3)
+    #===================================================================
+    if args.load_file or args.load_path:
+        npzfiles = []
+
+        if args.load_file:
+            npzfiles.append(args.load_file)
+        else:
+            npyRGX = re.compile('.npz')
+            for root, dirs, files in os.walk(args.load_path):
                 path = root.split('/')
                 for lfile in files:
-                    if phsRGX.search(lfile):
-                        print("Found:",args.path + "/" + lfile)
-                        cl3files.append(args.path + "/"+ lfile)
-            cl3files = np.sort(cl3files)
-            totalSites = np.size(cl3files)
+                    if npyRGX.search(lfile):
+                        print("Found:",args.load_path + "/" + lfile)
+                        npzfiles.append(args.load_path + "/"+ lfile)
+
+        npzfiles = np.sort(npzfiles)
+
+        # model counter
+        mctr = 0
+        #params = []
+        prechis = []
+        numds = []
+
+        #=====================================================================
+        # first thing, work out how many models and parameters we will need to account for
+        #=====================================================================
+        for n in range(0,np.size(npzfiles)):
+            info = {}
+            filename = os.path.basename(npzfiles[n])
+            info['basename'] = filename
+            info['site'] = filename[0:4]
+            info['npzfile'] = npzfiles[n]
+            info['cl3file'] = npzfiles[n][:-4]
+            cl3files.append(info['cl3file'])
+            npzfile = np.load(npzfiles[n])
+            AtWb = npzfile['atwb']
+            info['num_svs'] = np.size(npzfile['svs'])
+            tSat = numParamsPerSat * np.size(npzfile['svs']) 
+            info['numModels'] = int((np.size(AtWb) - tSat)/numParamsPerSite)
+            mctr = mctr + info['numModels']
+            params.append(info)
+            prechis.append(npzfile['prechi'][0])
+            numds.append(npzfile['numd'][0])
+            print("LOADED prechi, numd:",npzfile['prechi'][0],npzfile['numd'][0])
+
+            for s in range(0,info['numModels']):
+                siteIDList.append(info['site']+"_model_"+str(s+1))
+            del AtWb, npzfile
+
+        #totalSiteModels = mctr
+        numSVS = params[0]['num_svs']
+        numSites = int(mctr) 
+        tSite = numParamsPerSite * numSites
+        numParams = tSat + tSite
+        print("Total number of models",numSites,tSite,numParams)
+
+    elif args.resfile :
+        print("Reading in:", args.resfile)
+        cl3files.append(args.resfile)
+        siteIDList.append(os.path.basename(args.resfile)[0:4]+"_model_1")
+    elif args.path:
+        print("Checking {:s} for CL3 files".format(args.path))
+        phsRGX = re.compile('.CL3$')
+        for root, dirs, files in os.walk(args.path):
+            path = root.split('/')
+            for lfile in files:
+                if phsRGX.search(lfile):
+                    print("Found:",args.path + "/" + lfile)
+                    cl3files.append(args.path + "/"+ lfile)
+        cl3files = np.sort(cl3files)
+        totalSites = np.size(cl3files)
+
+    #===================================================================
+    # Work out the time scale of observations, and number of parameters
+    # that will be solved for. 
+    #===================================================================
+    #if not args.load_file and not args.load_path:
+    if args.model or args.postfit:
+        # read in the consolidated LC residuals
+        if args.syyyy and args.eyyyy:
+            dt_start = dt.datetime(int(args.syyyy),01,01) + dt.timedelta(days=int(args.sdoy))
+            dt_stop  = dt.datetime(int(args.eyyyy),01,01) + dt.timedelta(days=int(args.edoy))
+        else:
+            print("")
+            print("Warning:")
+            print("\tusing:",cl3files[0],"to work out the time period to determine how many satellites were operating.")
+            print("")
+            site_residuals = res.parseConsolidatedNumpy(cl3files[0])
+            dt_start = gt.unix2dt(site_residuals[0,0])
+            res_start = int(dt_start.strftime("%Y") + dt_start.strftime("%j"))
+            dt_stop = gt.unix2dt(site_residuals[-1,0])
+            res_stop = int(dt_stop.strftime("%Y") + dt_stop.strftime("%j"))
+            print("\tResiduals run from:",res_start,"to:",res_stop)
+            del site_residuals
+
+        # already have the parameters defined if we are loading in the npzfiles..
+        if not args.load_file and not args.load_path:
+            params, numModels = prepareSites(cl3files,dt_start,dt_stop,args)
+
+        antennas = ant.parseANTEX(args.antex)
+        svdat = svnav.parseSVNAV(args.svnavFile)
+        svs = ant.satSearch(antennas,dt_start,dt_stop)
+        svs = np.sort(np.unique(svs))
+
+    if args.model: 
 
         if not args.load_file and not args.load_path:
-            # read in the consolidated LC residuals
-            if args.syyyy and args.eyyyy:
-                dt_start = dt.datetime(int(args.syyyy),01,01) + dt.timedelta(days=int(args.sdoy))
-                dt_stop  = dt.datetime(int(args.eyyyy),01,01) + dt.timedelta(days=int(args.edoy))
-            else:
-                print("")
-                print("Warning:")
-                print("\tusing:",cl3files[0],"to work out the time period to determine how many satellites were operating.")
-                print("")
-                site_residuals = res.parseConsolidatedNumpy(cl3files[0])
-                dt_start = gt.unix2dt(site_residuals[0,0])
-                res_start = int(dt_start.strftime("%Y") + dt_start.strftime("%j"))
-                dt_stop = gt.unix2dt(site_residuals[-1,0])
-                res_stop = int(dt_stop.strftime("%Y") + dt_stop.strftime("%j"))
-                print("\tResiduals run from:",res_start,"to:",res_stop)
-                del site_residuals
-
-            #=====================================================================
-            # Work out how many satellites we need to solve for
-            #=====================================================================
-            svdat = svnav.parseSVNAV(args.svnavFile)
-            svs = ant.satSearch(antennas,dt_start,dt_stop)
-            svs = np.sort(np.unique(svs))
-
-            #=====================================================================
-            # Work out how many station models need to be created 
-            #=====================================================================
-            numModels = 0
-            params = []
-
-            for f in range(0,np.size(cl3files)):
-                filename    = os.path.basename(cl3files[f])
-                siteID      = filename[0:4]
-                sdata       = gsf.parseSite(args.station_file,siteID.upper())
-                changes     = gsf.determineESMChanges(dt_start,dt_stop,sdata)
-                sitepos     = gapr.getStationPos(args.apr_file,siteID)
-                numModels   = numModels + np.size(changes['ind']) + 1
-                info = {}
-                info['filename']  = cl3files[f]
-                info['basename']  = filename
-                info['site']      = siteID
-                info['numModels'] = np.size(changes['ind']) + 1 
-                info['changes']   = changes
-                info['sitepos']   = sitepos
-                params.append(info)
-
             # Read in the residual files and create the normal equations
             multiprocessing.freeze_support()
             prechi, numd = setUpTasks(cl3files,svs,args,params)
+
             print("Prechi",prechi,np.sqrt(prechi/numd))
             prechis.append(prechi)
             numds.append(numd)
@@ -997,69 +1154,11 @@ if __name__ == "__main__":
             prefit_sums = np.zeros(numParams)
             postfit_sums = np.zeros(numParams)
 
-            #=====================================================================
-            # Now read in all of the numpy compressed files
-            #=====================================================================
-            nctr = 0
-
             for f in range(0,np.size(params)):
-                filename = os.path.basename(cl3files[f])
                 params[f]['npzfile'] = params[f]['filename']+'.npz'
-                nfile = params[f]['npzfile'] 
 
-                npzfile = np.load(nfile)
-                Neq_tmp  = npzfile['neq']
-                AtWb_tmp = npzfile['atwb']
-
-                prefit = prefit + npzfile['prefit'][0]      
-                prefit_sums_tmp = npzfile['prefitsums']
-
-                nadir_freq = np.add(nadir_freq,npzfile['nadirfreq'])
-
-                # only need one copy of the svs array, they should be eactly the same
-                if nctr == 0:
-                    svs_tmp  = npzfile['svs']
-                    svs = np.sort(svs_tmp)
-                    del svs_tmp
-
-                # Add the svn component to the Neq
-                Neq[0:tSat, 0:tSat] = Neq[0:tSat,0:tSat] + Neq_tmp[0:tSat,0:tSat]
-                AtWb[0:tSat]        = AtWb[0:tSat] + AtWb_tmp[0:tSat]
-
-                # Add the postfit sum and prefit sums for the SVN component/block together
-                prefit_sums[0:tSat]  = prefit_sums[0:tSat] + prefit_sums_tmp[0:tSat]
-                
-                #===================================
-                # Loop over each model 
-                #===================================
-                for m in range(0,params[f]['numModels']) :
-                    # Add in the station dependent models
-                    start = tSat + nctr * numParamsPerSite 
-                    end = tSat + (nctr+1) * numParamsPerSite
-
-                    tmp_start = tSat + numParamsPerSite * m 
-                    tmp_end   = tSat + numParamsPerSite * m + numParamsPerSite
-
-                    AtWb[start:end] = AtWb[start:end] + AtWb_tmp[tSat:(tSat+numParamsPerSite)]
-                    prefit_sums[start:end]  = prefit_sums[start:end] + prefit_sums_tmp[tSat:(tSat+numParamsPerSite)]
-                    #postfit_sums[start:end] = postfit_sums[start:end] + prefit_sums_tmp[tSat:(tSat+numParamsPerSite)]
-                    #
-                    #   ------------------------------------------------
-                    #  | SVN         | svn + site | svn + site2 | ....
-                    #  | svn + site  | site       | 0           | ....
-                    #  | svn + site2 | 0          | site2       | ....
-                    #
-
-                    # Add in the site block 
-                    Neq[start:end,start:end] = Neq[start:end,start:end] + Neq_tmp[tmp_start:tmp_end,tmp_start:tmp_end]
-
-                    # Adding in the correlation with the SVN and site
-                    Neq[0:tSat,start:end] = Neq[0:tSat,start:end] + Neq_tmp[0:tSat,tmp_start:tmp_end]
-                    Neq[start:end,0:tSat] = Neq[start:end,0:tSat] + Neq_tmp[tmp_start:tmp_end,0:tSat]
-                    nctr += 1
-                    totalSiteModels = totalSiteModels + 1
-                    siteIDList.append(params[f]['site'])
-
+            Neq, AtWb, svs, prefit, prefit_sums, totalSiteModels, siteIDList, nadir_freq = stackStationNeqs(Neq,
+                                                    AtWb,prefit,prefit_sums,nadir_freq,siteIDList,params,tSat)
 
             if args.save_file:
                 prefitA = [prefit]
@@ -1068,7 +1167,7 @@ if __name__ == "__main__":
 
             # remove the unwanted observations after it has been saved to disk
             # as we may want to add to Neq together, which may have observations to satellites not seen in the Neq..
-            Neq,AtWb,svs,nadir_freq = compressNeq(Neq,AtWb,svs,numParamsPerSat,nadir_freq)
+            Neq,AtWb,svs,nadir_freq,prefit_sums = compressNeq(Neq,AtWb,svs,numParamsPerSat,nadir_freq,prefit_sums)
             tSat = np.size(svs) * numParamsPerSat
             numParams = tSat + tSite
             numSVS = np.size(svs)
@@ -1079,63 +1178,6 @@ if __name__ == "__main__":
             print("FINISHED MP processing, now need to workout stacking:...\n") 
 
         if args.load_file or args.load_path:
-            npzfiles = []
-            # Number of Parameters
-            numNADS = int(14.0/args.nadir_grid) + 1 
-            PCOEstimates = 1
-            numParamsPerSat = numNADS + PCOEstimates
-
-            # Should do a quick loop through and check that all of the svs in each file
-            # are of the same dimension
-            numParamsPerSite = int(90./args.zen) + 1 
-
-            if args.load_file:
-                npzfiles.append(args.load_file)
-            else:
-                npyRGX = re.compile('.npz')
-                for root, dirs, files in os.walk(args.load_path):
-                    path = root.split('/')
-                    for lfile in files:
-                        if npyRGX.search(lfile):
-                            print("Found:",args.load_path + "/" + lfile)
-                            npzfiles.append(args.load_path + "/"+ lfile)
-
-            npzfiles = np.sort(npzfiles)
-
-            # model counter
-            mctr = 0
-            meta = []
-            prechis = []
-            numds = []
-            #=====================================================================
-            # first thing, work out how many models and parameters we will need to account for
-            #=====================================================================
-            for n in range(0,np.size(npzfiles)):
-                info = {}
-                filename = os.path.basename(npzfiles[n])
-                info['basename'] = filename
-                info['site'] = filename[0:4]
-
-                npzfile = np.load(npzfiles[n])
-                AtWb = npzfile['atwb']
-                info['num_svs'] = np.size(npzfile['svs'])
-                tSat = numParamsPerSat * np.size(npzfile['svs']) 
-                info['numModels'] = int((np.size(AtWb) - tSat)/numParamsPerSite)
-                mctr = mctr + info['numModels']
-                meta.append(info)
-                prechis.append(npzfile['prechi'][0])
-                numds.append(npzfile['numd'][0])
-                print("LOADED prechi, numd:",npzfile['prechi'][0],npzfile['numd'][0])
-
-                for s in range(0,info['numModels']):
-                    siteIDList.append(info['site']+"_model_"+str(s+1))
-                del AtWb, npzfile
-
-            totalSiteModels = mctr
-            numSVS = meta[0]['num_svs']
-            numSites = int(mctr) 
-            tSite = numParamsPerSite * numSites
-            numParams = tSat + tSite
 
             print("Total number of site models :",mctr, "Total number of paramters to solve for:",numParams)
             Neq = np.zeros((numParams,numParams))
@@ -1144,41 +1186,12 @@ if __name__ == "__main__":
             prefit = 0.
             prefit_sums = np.zeros(numParams)
             mdlCtr = 0
-            for n in range(0,np.size(npzfiles)):
-                npzfile = np.load(npzfiles[n])
-                Neq_tmp  = npzfile['neq']
-                AtWb_tmp = npzfile['atwb']
-                svs_tmp  = npzfile['svs']
-                nadir_freq = np.add(nadir_freq,npzfile['nadirfreq'])
-                prefit = prefit + npzfile['prefit'][0]      
-                prefit_sums = np.add(prefit_sums,npzfile['prefitsums'])
-
-                if n == 0:
-                    svs = np.sort(svs_tmp)
-
-                # Add the svn component to the Neq
-                Neq[0:tSat-1,0:tSat-1] = Neq[0:tSat -1,0:tSat-1] + Neq_tmp[0:tSat-1,0:tSat-1]
-                AtWb[0:tSat-1] = AtWb[0:tSat-1] + AtWb_tmp[0:tSat-1]
-
-                for m in range(0,meta[n]['numModels']) :
-                    # Add in the station dependent models
-                    start = tSat + mdlCtr * numParamsPerSite 
-                    end   = tSat + (mdlCtr+1) * numParamsPerSite
-
-                    tmp_start = tSat + numParamsPerSite * m 
-                    tmp_end   = tSat + numParamsPerSite * m + numParamsPerSite
-
-                    #AtWb[start:end] = AtWb[start:end] + AtWb_tmp[tSat:(tSat+numParamsPerSite)]
-                    AtWb[start:end] = AtWb[start:end] + AtWb_tmp[tmp_start:tmp_end]
-                    Neq[start:end,start:end] = Neq[start:end,start:end] + Neq_tmp[tmp_start:tmp_end,tmp_start:tmp_end]
-
-                    # Adding in the correlation with the SVN and site
-                    Neq[0:tSat-1,start:end] = Neq[0:tSat-1,start:end] + Neq_tmp[0:tSat-1,tmp_start:tmp_end]
-                    Neq[start:end,0:tSat-1] = Neq[start:end,0:tSat-1] + Neq_tmp[tmp_start:tmp_end,0:tSat-1]
-                    mdlCtr = mdlCtr + 1
+            
+            Neq, AtWb, svs, prefit, prefit_sums, totalSiteModels, siteIDList, nadir_freq = stackStationNeqs(Neq,
+                                                    AtWb,prefit,prefit_sums,nadir_freq,siteIDList,params,tSat)
 
             # check for any rows/ columns without any observations, if they are empty remove the parameters
-            Neq,AtWb,svs,nadir_freq = compressNeq(Neq,AtWb,svs,numParamsPerSat,nadir_freq)
+            Neq,AtWb,svs,nadir_freq,prefit_sums = compressNeq(Neq,AtWb,svs,numParamsPerSat,nadir_freq,prefit_sums)
             tSat = np.size(svs) * numParamsPerSat
             numParams = tSat + tSite
             numSVS = np.size(svs)
@@ -1202,7 +1215,7 @@ if __name__ == "__main__":
         print("Just read in stacked file:",args.stacked_file)
         #print("Prechi Numd:",prechi,numd) 
 
-    if args.apply_constraints:
+    if args.apply_constraints and not args.solutionfile1:
         #========================================================================
         # Adding Constraints to the satellite parameters,
         # keep the site model free ~ 10mm  0.01 => 1/sqrt(0.01) = 10 (mm)
@@ -1314,66 +1327,92 @@ if __name__ == "__main__":
         # Add the parameter constraints to the Neq
         Neq = np.add(Neq,C_inv)
 
+    if args.solutionfile1:
+        npzfile = np.load(args.solutionfile2)
+        Sol  = npzfile['sol']
+        Cov  = npzfile['cov']
+        nadir_freq = npzfile['nadirfreq']
+        prefit_sums = npzfile['prefitsums'] 
 
-    print("Now trying an inverse of Neq",np.shape(Neq))
-    Cov = np.linalg.pinv(Neq)
-    #Cov = sp.linalg.pinv(Neq)
-    #Cho = np.linalg.cholesky(Neq)
-    #Cho_inv = np.linalg.pinv(Cho)
-    #Cov = np.dot(Cho_inv.T,Cho_inv)
+        # Now read the pickle file
+        with open(args.solutionfile1,'rb') as pklID:
+            meta = pickle.load(pklID)
+        pklID.close()
 
-    print("Now computing the solution")
-    Sol = np.dot(Cov,AtWb)
-    print("The solution is :",np.shape(Sol))
+        args.model = meta['model'] 
+        args.nadir_grid = meta['nadir_grid'] 
+        args.antex = meta['antex_file'] 
+        args.svnavFile = meta['svnav'] 
+        args.station_file = meta['station_info'] 
+        args.zen = meta['zenith_grid'] 
 
-    prechi = np.sum(prechis)
-    numd = np.sum(numds)
-    #print("Prechi, numd",prechi,numd)
+        #   meta['syyyy'] = args.syyyy
+        #   meta['sddd']  = args.sdoy
+        #   meta['eyyyy'] = args.eyyyy
+        #   meta['eddd']  = args.edoy
+        #   if args.stacked_file:
+        #       meta['datafiles'] = args.stacked_file 
+        #   else:
+        #       meta['datafiles'] = npzfiles
+        svs = meta['svs'] 
+        numSites = meta['numSiteModels'] 
+        siteIDList = meta['siteIDList'] 
+        prechi = meta['prechi']   #= np.sqrt(prechi/numd)
+        postchi = meta['postchi'] # = np.sqrt(postchi/numd)
+        numd = meta['numd']
+        chi_inc =  meta['chi_inc'] # = np.sqrt((prechi-postchi)/numd)
+        #    meta['apply_constraints'] = args.apply_constraints
+        #    if args.apply_constraints:
+        #        meta['constraint_SATPCV']  = args.constraint_SATPCV # 0.5 
+        #        meta['constraint_SATPCO']  = args.constraint_SATPCO # 1.5
+        #        meta['constraint_SATWIN']  = args.constraint_SATWIN # 0.5
+        #        meta['constraint_SITEPCV'] = args.constraint_SITEPCV #10.0
+        #        meta['constraint_SITEWIN'] = args.constraint_SITEWIN #1.5
+        #    meta['saved_file'] = args.solution + ".sol"
+        prefit = meta['prefit']
+        #    if args.postfit:
+        #        meta['postfit'] = postfit
+        #postfit, postfit_sums = setUpPostFitTasks(cl3files,svs,Sol,params,args,tSat,numParamsPerSite,np.size(Sol))
+        tSat = np.size(svs) * (int(14.0/args.nadir_grid)+ 1 +1)
+        numParamsPerSite = int(90.0/args.zen)+1
+    else:
+        print("Now trying an inverse of Neq",np.shape(Neq))
+        if args.cholesky:
+            print("Using cholsky inversion technique")
+            Cho = np.linalg.cholesky(Neq)
+            Cho_inv = np.linalg.pinv(Cho)
+            Cov = np.dot(Cho_inv.T,Cho_inv)
+        else:
+            Cov = np.linalg.pinv(Neq)
+
+        print("Now computing the solution")
+        Sol = np.dot(Cov,AtWb)
+        print("The solution is :",np.shape(Sol))
+
+        prechi = np.sum(prechis)
+        numd = np.sum(numds)
+        #print("Prechi, numd",prechi,numd)
              
-    postchi = prechi - np.dot(np.array(AtWb).T,np.array(Sol))
-    print("STATS:",numd,np.sqrt(prechi/numd),np.sqrt(postchi/numd),np.sqrt((prechi-postchi)/numd))#,aic,bic)
-    print("stats:",prefit,prefit_sums)
+        postchi = prechi - np.dot(np.array(AtWb).T,np.array(Sol))
+        print("STATS:",numd,np.sqrt(prechi/numd),np.sqrt(postchi/numd),np.sqrt((prechi-postchi)/numd))#,aic,bic)
+        print("stats:",prefit,prefit_sums)
 
     # calculate the post-fit residuals
     if args.postfit:
         postfit = 0
         postfit_sums = np.zeros(numParams)
-        mdlCtr = 0
-        for f in range(0,np.size(cl3files)):
-            filename    = os.path.basename(cl3files[f])
-            siteID      = filename[0:4]
-            sdata       = gsf.parseSite(args.station_file,siteID.upper())
-            changes     = gsf.determineESMChanges(dt_start,dt_stop,sdata)
-            sitepos     = gapr.getStationPos(args.apr_file,siteID)
-            numModels   = numModels + np.size(changes['ind']) + 1
-            info = {}
-            info['filename']  = cl3files[f]
-            info['basename']  = filename
-            info['site']      = siteID
-            info['numModels'] = np.size(changes['ind']) + 1 
-            info['changes']   = changes
-            info['sitepos']   = sitepos
+        print("Calculating post-fit residuals")
+        # re calcaulte params based on raw data
+        if args.load_file or args.load_path:
+            params, numModels = prepareSites(cl3files,dt_start,dt_stop,args)
 
-            site_residuals = res.parseConsolidatedNumpy(info['filename'])
-            postfit_tmp, postfit_sums_tmp, mdlCtr_tmp = calcPostFitBySite(site_residuals,svs,Sol,info,args,mdlCtr)
-
-            multiprocessing.freeze_support()
-            postfit, postfit_sums = setUpPostFitTasks(site_residuals,svs,Sol,info,args,mdlCtr)
-            print("Prefit, Postfit, Postfit/Prefit",prefit,postfit,postfit/prefit) #np.sqrt(prechi/numd))
-            # Now stack the postfit residuals together as they are returned            
-            #postfit = postfit + postfit_tmp
-            #for m in range(0,info['numModels']) :
-            #    # Add in the station dependent models
-            #    start = tSat + mdlCtr * numParamsPerSite 
-            #    end   = tSat + (mdlCtr+1) * numParamsPerSite
-
-            #    tmp_start = tSat + numParamsPerSite * m 
-            #    tmp_end   = tSat + numParamsPerSite * m + numParamsPerSite
-
-            #    postfit_sums[start:end] = postfit_sums[start:end] + postfit_sums_tmp[tmp_start:tmp_end]
-
-            #    mdlCtr = mdlCtr + 1
-        #print("STATS:",postfit,postfit_sums,postfit/prefit)
+        multiprocessing.freeze_support()
+        postfit, postfit_sums = setUpPostFitTasks(cl3files,svs,Sol,params,args,tSat,numParamsPerSite,np.size(Sol))
+        print("Prefit, Postfit, Postfit/Prefit",prefit,postfit,postfit/prefit) #np.sqrt(prechi/numd))
+        prefit_svs = np.sum(prefit_sums[0:tSat])
+        postfit_svs = np.sum(postfit_sums[0:tSat])
+        print("postfit_sums summed:",np.sum(postfit_sums))
+        print("SVS Prefit, Postfit, Postfit/Prefit",prefit_svs,postfit_svs,postfit_svs/prefit_svs) #np.sqrt(prechi/numd))
     #=======================================================================================================
     #
     #       Save the solution to a pickle data structure
@@ -1411,12 +1450,19 @@ if __name__ == "__main__":
                 meta['constraint_SITEPCV'] = args.constraint_SITEPCV #10.0
                 meta['constraint_SITEWIN'] = args.constraint_SITEWIN #1.5
             meta['saved_file'] = args.solution + ".sol"
+            meta['prefit'] = prefit 
+            if args.postfit:
+                meta['postfit'] = postfit
             pickle.dump(meta,pklID,2)
-
-            np.savez_compressed(args.solution+".sol",sol=Sol,cov=Cov,nadirfreq=nadir_freq)
-            #pickle.dump(Sol,pklID)
-            #pickle.dump(Cov,pklID)
             pklID.close()            
+
+            #np.savez_compressed(args.solution+".sol",sol=Sol,cov=Cov,nadirfreq=nadir_freq)
+            if args.postfit:
+                np.savez_compressed(args.solution+".sol",sol=Sol,cov=Cov,nadirfreq=nadir_freq,
+                                prefitsums=prefit_sums,postfitsum=postfit_sums)
+            else:
+                np.savez_compressed(args.solution+".sol",sol=Sol,cov=Cov,nadirfreq=nadir_freq,
+                                prefitsums=prefit_sums)
 
     if args.plotNadir or args.savePlots:
         nad = np.linspace(0,14, int(14./args.nadir_grid)+1 )
