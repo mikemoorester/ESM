@@ -682,7 +682,7 @@ def calcPostFitBySite(cl3file,svs,Sol,params,args,modelNum):
 
             # parse the broadcast navigation file for this day to get an accurate
             # nadir angle
-            year = minDTO.strftime("%Y") 
+            #year = minDTO.strftime("%Y") 
             yy = minDTO.strftime("%y") 
             doy = minDTO.strftime("%j") 
             navfile = brdc_dir + 'brdc'+ doy +'0.'+ yy +'n'
@@ -883,11 +883,7 @@ def stackStationNeqs(Neq,AtWb,prefit,prefit_sums,nadir_freq,siteIDList,params,tS
 
     return Neq, AtWb, svs, prefit, prefit_sums, totalSiteModels, siteIDList, nadir_freq
 
-#=====================================
-#
-# TODO: time filter residuals
-#
-#=====================================
+
 if __name__ == "__main__":
 #    import warnings
 #    warnings.filterwarnings("ignore")
@@ -1339,12 +1335,12 @@ if __name__ == "__main__":
             meta = pickle.load(pklID)
         pklID.close()
 
-        args.model = meta['model'] 
-        args.nadir_grid = meta['nadir_grid'] 
-        args.antex = meta['antex_file'] 
-        args.svnavFile = meta['svnav'] 
-        args.station_file = meta['station_info'] 
-        args.zen = meta['zenith_grid'] 
+        args.model          = meta['model'] 
+        args.nadir_grid     = meta['nadir_grid'] 
+        args.antex          = meta['antex_file'] 
+        args.svnavFile      = meta['svnav'] 
+        args.station_file   = meta['station_info'] 
+        args.zen            = meta['zenith_grid'] 
 
         #   meta['syyyy'] = args.syyyy
         #   meta['sddd']  = args.sdoy
@@ -1372,7 +1368,6 @@ if __name__ == "__main__":
         prefit = meta['prefit']
         #    if args.postfit:
         #        meta['postfit'] = postfit
-        #postfit, postfit_sums = setUpPostFitTasks(cl3files,svs,Sol,params,args,tSat,numParamsPerSite,np.size(Sol))
         tSat = np.size(svs) * (int(14.0/args.nadir_grid)+ 1 +1)
         numParamsPerSite = int(90.0/args.zen)+1
     else:
