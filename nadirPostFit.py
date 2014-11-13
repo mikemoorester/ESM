@@ -1,9 +1,6 @@
 #!/usr/bin/env python
 from __future__ import division, print_function, absolute_import
 
-#import matplotlib
-#matplotlib.use('Agg')
-
 import numpy as np
 import calendar
 import datetime as dt
@@ -41,11 +38,13 @@ def calcPostFitBySite(cl3file,svs,Sol,params,args,modelNum):
 
     zenSpacing = args.zen
     numParamsPerSite = int(90.0/zenSpacing) + 1
-    tSite = numParamsPerSite*params['numModels']
-    numParams = tSat + tSite 
+    #tSite = numParamsPerSite*params['numModels']
+    numParams = np.size(Sol)#tSat + tSite 
    
     brdc_dir = args.brdc_dir
 
+    prefit = 0.0
+    prefit_sums = np.zeros(numParams)
     postfit = 0.0
     postfit_sums = np.zeros(numParams)
 
@@ -99,7 +98,7 @@ def calcPostFitBySite(cl3file,svs,Sol,params,args,modelNum):
             tdata = res.reject_absVal(model_residuals[tind,:],100.)
 
             #print("rejecting any residuals greater than 5 sigma",np.shape(tdata))
-            data = res.reject_outliers_elevation(tdata,5,0.5)
+            data = res.reject_outliers_elevation(tdata,5,zenSpacing)
             del tdata
 
             # parse the broadcast navigation file for this day to get an accurate
@@ -113,6 +112,8 @@ def calcPostFitBySite(cl3file,svs,Sol,params,args,modelNum):
             # Get the total number of observations for this site
             numd = np.shape(data)[0]
             #print("Have:",numd,"observations")
+            a,b = res.gamitWeight(data)
+
             for i in range(0,numd):
                 # work out the svn number
                 svndto =  gt.unix2dt(data[i,0])
@@ -138,7 +139,10 @@ def calcPostFitBySite(cl3file,svs,Sol,params,args,modelNum):
                 # check that the indices are not overlapping
                 if iz+1 >= pco_iz:
                     continue
-                
+              
+                w = a**2 + b**2/np.sin(np.radians(data[i,2]))**2
+                w = 1./w
+ 
                 # Nadir partials..
                 Apart_1 = (1.-(nadir-niz*nadSpacing)/nadSpacing)
                 Apart_2 = (nadir-niz*nadSpacing)/nadSpacing
@@ -148,22 +152,57 @@ def calcPostFitBySite(cl3file,svs,Sol,params,args,modelNum):
                 Apart_4 = (1.-(data[i,2]-nsiz*zenSpacing)/zenSpacing)
                 Apart_5 = (data[i,2]-nsiz*zenSpacing)/zenSpacing
 
-                postfit = postfit + ((data[i,3] - Apart_1 * Sol[iz])/1000.)**2
-                postfit_sums[iz] = postfit_sums[iz] + ((data[i,3] - Apart_1 * Sol[iz])/1000.)**2
+                prefit              = prefit + ((data[i,3]/1000.)**2) * 5
+                prefit_sums[iz]     = prefit_sums[iz] + (data[i,3]/1000.)**2
+                prefit_sums[iz+1]   = prefit_sums[iz+1] + (data[i,3]/1000.)**2
+                prefit_sums[pco_iz] = prefit_sums[pco_iz] + (data[i,3]/1000.)**2
+                prefit_sums[sol_site]   = prefit_sums[sol_site] + (data[i,3]/1000.)**2
+                prefit_sums[sol_site+1] = prefit_sums[sol_site+1] + (data[i,3]/1000.)**2
 
-                postfit = postfit + ((data[i,3] - Apart_2 * Sol[iz+1])/1000.)**2
-                postfit_sums[iz+1] = postfit_sums[iz+1] + ((data[i,3] - Apart_2 * Sol[iz+1])/1000.)**2
+                #postfit = postfit + ((data[i,3] - Apart_1 * Sol[iz])/1000.)**2
+                #postfit = postfit + ((data[i,3] - Apart_2 * Sol[iz+1])/1000.)**2
+                #postfit = postfit + ((data[i,3] - Apart_3 * Sol[pco_iz])/1000.)**2
+                #postfit = postfit + ((data[i,3] - Apart_4 * Sol[sol_site])/1000.)**2
+                #postfit = postfit + ((data[i,3] - Apart_5 * Sol[sol_site+1])/1000.)**2
 
-                postfit = postfit + ((data[i,3] - Apart_3 * Sol[pco_iz])/1000.)**2
-                postfit_sums[pco_iz] = postfit_sums[pco_iz] + ((data[i,3] - Apart_3 * Sol[pco_iz])/1000.)**2
+                #postfit_sums[iz]     = postfit_sums[iz]     + ((data[i,3] - Apart_1 * Sol[iz])/1000.)**2
+                #postfit_sums[iz+1]   = postfit_sums[iz+1]   + ((data[i,3] - Apart_2 * Sol[iz+1])/1000.)**2
+                #postfit_sums[pco_iz] = postfit_sums[pco_iz] + ((data[i,3] - Apart_3 * Sol[pco_iz])/1000.)**2
+                #postfit_sums[sol_site]   = postfit_sums[sol_site]   + ((data[i,3] - Apart_4 * Sol[sol_site])/1000.)**2
+                #postfit_sums[sol_site+1] = postfit_sums[sol_site+1] + ((data[i,3] - Apart_5 * Sol[sol_site+1])/1000.)**2
 
-                postfit = postfit + ((data[i,3] - Apart_4 * Sol[siz])/1000.)**2
-                postfit_sums[siz] = postfit_sums[siz] + ((data[i,3] - Apart_4 * Sol[sol_site])/1000.)**2
+                postfit = postfit + (( data[i,3] - ( Apart_3*Sol[pco_iz] +
+                                                     Sol[iz]*Apart_1 + Sol[iz+1]*Apart_2 + 
+                                                     Sol[sol_site]*Apart_4 + Sol[sol_site+1]*Apart_5 )
+                                    )/1000.)**2
 
-                postfit = postfit + ((data[i,3] - Apart_5 * Sol[siz+1])/1000.)**2
-                postfit_sums[siz+1] = postfit_sums[siz+1] + ((data[i,3] - Apart_5 * Sol[sol_site+1])/1000.)**2
+                postfit_sums[iz] = postfit_sums[iz] + (( data[i,3] - ( Apart_3*Sol[pco_iz] +
+                                                                       Sol[iz]*Apart_1 + Sol[iz+1]*Apart_2 + 
+                                                                       Sol[sol_site]*Apart_4 + Sol[sol_site+1]*Apart_5 )
+                                                      )/1000.)**2
 
-    return postfit, postfit_sums, params, modelNum
+                postfit_sums[iz+1] = postfit_sums[iz+1] + (( data[i,3] - ( Apart_3*Sol[pco_iz] +
+                                                                           Sol[iz]*Apart_1 + Sol[iz+1]*Apart_2 + 
+                                                                           Sol[sol_site]*Apart_4 + Sol[sol_site+1]*Apart_5 )
+                                                          )/1000.)**2
+
+                postfit_sums[pco_iz] = postfit_sums[pco_iz] + (( data[i,3] - ( Apart_3*Sol[pco_iz] +
+                                                                               Sol[iz]*Apart_1 + Sol[iz+1]*Apart_2 + 
+                                                                               Sol[sol_site]*Apart_4 + Sol[sol_site+1]*Apart_5 )
+                                                          )/1000.)**2
+
+                postfit_sums[sol_site] = postfit_sums[sol_site] + (( data[i,3] - ( Apart_3*Sol[pco_iz] +
+                                                                          Sol[iz]*Apart_1 + Sol[iz+1]*Apart_2 + 
+                                                                          Sol[sol_site]*Apart_4 + Sol[sol_site+1]*Apart_5 )
+                                                          )/1000.)**2
+
+                postfit_sums[sol_site+1]   = postfit_sums[sol_site+1] + (( data[i,3] - ( Apart_3*Sol[pco_iz] +
+                                                                          Sol[iz]*Apart_1 + Sol[iz+1]*Apart_2 + 
+                                                                          Sol[sol_site]*Apart_4 + Sol[sol_site+1]*Apart_5 )
+                                                          )/1000.)**2
+
+                
+    return prefit,prefit_sums, postfit, postfit_sums, params, modelNum
 
 def prepareSites(cl3files,dt_start,dt_end,args):
     #=====================================================================
@@ -252,14 +291,42 @@ if __name__ == "__main__":
             for lfile in files:
                 if pftRGX.search(lfile):
                     npzfile = np.load(lfile)
+                    print("Loading file:",lfile)
                     if ctr == 0:
+                        prefit_sums = npzfile['prefitsum']
+                        prefit = npzfile['prefit'][0]
+
                         postfit_sums = npzfile['postfitsum']
                         postfit = npzfile['postfit'][0]
                     else:
+                        prefit_sums = np.add(prefit_sums,npzfile['prefitsum'])
+                        prefit += npzfile['prefit'][0]
                         postfit_sums = np.add(postfit_sums,npzfile['postfitsum'])
                         postfit += npzfile['postfit'][0]
                     ctr += 1
         print("postfit is",postfit)    
+        print("Prefit, Postfit, Postfit/Prefit",prefit,postfit,postfit/prefit)
+        print("SUMMED:",np.sum(prefit_sums),np.sum(postfit_sums),np.sum(postfit_sums)/np.sum(prefit_sums))
+    	# Now read the pickle file
+    	with open(args.solutionfile1,'rb') as pklID:
+            meta = pickle.load(pklID)
+        pklID.close()
+
+        args.nadir_grid     = meta['nadir_grid'] 
+        args.zen            = meta['zenith_grid'] 
+        svs         = meta['svs'] 
+
+        # Number of Parameters
+        numNADS             = int(14.0/args.nadir_grid) + 1 
+        PCOEstimates        = 1
+        numSVS              = np.size(svs)
+        numParamsPerSat     = numNADS + PCOEstimates
+        tSat                = numParamsPerSat * numSVS    
+
+        prefit_svs = np.sum(prefit_sums[0:tSat])
+        postfit_svs = np.sum(postfit_sums[0:tSat])
+   
+        print("SVS Prefit, Postfit, Postfit/Prefit",prefit_svs,postfit_svs,postfit_svs/prefit_svs)
         sys.exit(0)                    
                     
     # expand any home directory paths (~) to the full path, otherwise python won't find the file
@@ -344,45 +411,48 @@ if __name__ == "__main__":
     numParams           = np.size(Sol)
     
     print(siteIDList)
-    IDX = siteIDList.index(siteIDSRCH)
+    #IDX = siteIDList.index(siteIDSRCH)
+    mdlCtr = siteIDList.index(siteIDSRCH+'_model_1')
     
-    import collections
-    counter = collections.Counter(siteIDList)
-    print(counter)
-    # Counter({1: 4, 2: 4, 3: 2, 5: 2, 4: 1})
-    models = counter[siteIDSRCH]
-    mdlCtr = IDX + models -1
+    #import collections
+    #counter = collections.Counter(siteIDList)
+    #print(counter)
+    #models = counter[siteIDSRCH]
+    #mdlCtr = IDX + models -1
    
     print("Model Counter",mdlCtr)
     # get ready to start caclulation
-    postfit = 0.0
-    postfit_sums = np.zeros(numParams)
+    #postfit = 0.0
+    #postfit_sums = np.zeros(numParams)
+    #prefit_sums = np.zeros(numParams)
 
-    postfit_tmp, postfit_sums_tmp, info, mdlCtr = calcPostFitBySite(cl3files[0],svs,Sol,params[0],args,mdlCtr)
+    prefit, prefit_sums, postfit, postfit_sums, info, mdlCtr = calcPostFitBySite(cl3files[0],svs,Sol,params[0],args,mdlCtr)
+    #prefit, prefit_sums, postfit_tmp, postfit_sums_tmp, info, mdlCtr = calcPostFitBySite(cl3files[0],svs,Sol,params[0],args,mdlCtr)
    
-    postfit = postfit + postfit_tmp
-    postfit_sums[0:tSat] = postfit_sums[0:tSat] + postfit_sums_tmp[0:tSat]
-
+    #postfit = postfit + postfit_tmp
+    #postfit_sums[0:tSat] = postfit_sums[0:tSat] + postfit_sums_tmp[0:tSat]
     
-    ctr = 0
-    for m in range(mdlCtr,(info['numModels']+mdlCtr)) :
-        # Add in the station dependent models
-        start = tSat + m * numParamsPerSite  
-        end   = tSat + (m+1) * numParamsPerSite 
+    #ctr = 0
+    #for m in range(mdlCtr,(info['numModels']+mdlCtr)) :
+    #    # Add in the station dependent models
+    #    start = tSat + m * numParamsPerSite  
+    #    end   = tSat + (m+1) * numParamsPerSite 
 
-        tmp_start = tSat + numParamsPerSite * ctr 
-        tmp_end   = tSat + numParamsPerSite * (ctr+1) # + numParamsPerSite 
-        postfit_sums[start:end] = postfit_sums[start:end] + postfit_sums_tmp[tmp_start:tmp_end]
+    #    tmp_start = tSat + numParamsPerSite * ctr 
+    #    tmp_end   = tSat + numParamsPerSite * (ctr+1) # + numParamsPerSite 
+    #    postfit_sums[start:end] = postfit_sums[start:end] + postfit_sums_tmp[tmp_start:tmp_end]
+    #    prefit_sums[start:end] = prefit_sums[start:end] + prefit_sums_tmp[tmp_start:tmp_end]
 
-        ctr += 1    
+    #    ctr += 1    
         
     print("Prefit, Postfit, Postfit/Prefit",prefit,postfit,postfit/prefit)
+    print("Summed:",np.sum(prefit_sums),np.sum(postfit_sums)) 
     prefit_svs = np.sum(prefit_sums[0:tSat])
     postfit_svs = np.sum(postfit_sums[0:tSat])
-   
     print("SVS Prefit, Postfit, Postfit/Prefit",prefit_svs,postfit_svs,postfit_svs/prefit_svs)
-    postfitA = [postfit]
-    np.savez_compressed(siteIDSRCH+".pft", postfit=postfitA, postfitsum=postfit_sums)
+    prefitA = [ prefit ]
+    postfitA = [ postfit ]
+    np.savez_compressed(siteIDSRCH+".pft", prefit=prefitA, prefitsum=prefit_sums, postfit=postfitA, postfitsum=postfit_sums)
     #=======================================================================================================
     #
     #       Save the solution to a pickle data structure

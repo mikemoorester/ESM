@@ -403,7 +403,7 @@ def gamitWeight(site_residuals):
 
     # Split everything up into 17 bins
     for r in range(0,np.shape(site_residuals)[0]):
-        ele_bin = int(site_residuals[r,2]/5.0)
+        ele_bin = int((site_residuals[r,2])/5.0)
         sums_lc[ele_bin] = sums_lc[ele_bin] + np.sqrt(site_residuals[r,3]**2)
         nums_lc[ele_bin] = nums_lc[ele_bin] + 1
 

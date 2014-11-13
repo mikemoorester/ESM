@@ -306,8 +306,7 @@ def pwlNadirSiteDailyStack(site_residuals, svs, params, nadSpacing=0.1,zenSpacin
     numParams = tSat + tSite 
 
     prefit_sums = np.zeros(numParams)
-    prefit_sum = 0.0
-
+    prefit = 0.0
     print("------------------------------------------------")
     print("Processing Site:                        ",params['site'])
     print("------------------------------------------------")
@@ -383,7 +382,7 @@ def pwlNadirSiteDailyStack(site_residuals, svs, params, nadSpacing=0.1,zenSpacin
 
             # determine the elevation dependent weighting
             a,b = res.gamitWeight(data)
-            #print("Gamit Weighting:",d,a,b)
+            print("Gamit Weighting:",d,a,b)
 
             # parse the broadcast navigation file for this day to get an accurate
             # nadir angle
@@ -438,6 +437,7 @@ def pwlNadirSiteDailyStack(site_residuals, svs, params, nadSpacing=0.1,zenSpacin
                 #
                 # PCO partial ...
                 Apart_3 = -np.sin(np.radians(nadir)) 
+                #Apart_3 = 1 + np.sin(np.radians(nadir)) 
 
                 # Site partials
                 Apart_4 = (1.-(data[i,2]-nsiz*zenSpacing)/zenSpacing)
@@ -488,7 +488,7 @@ def pwlNadirSiteDailyStack(site_residuals, svs, params, nadSpacing=0.1,zenSpacin
                 if siz == pco_iz:
                     print("ERROR in indices siz = pco_iz")
 
-                prefit_sum          = prefit_sum + ((data[i,3]/1000.)**2.) *5.
+                prefit              = prefit + ((data[i,3]/1000.)**2.) *5.
                 prefit_sums[iz]     = prefit_sums[iz] + (data[i,3]/1000.)**2.
                 prefit_sums[iz+1]   = prefit_sums[iz+1] + (data[i,3]/1000.)**2.
                 prefit_sums[pco_iz] = prefit_sums[pco_iz] + (data[i,3]/1000.)**2.
@@ -498,7 +498,7 @@ def pwlNadirSiteDailyStack(site_residuals, svs, params, nadSpacing=0.1,zenSpacin
         prechi = prechi + np.dot(data[:,3].T,data[:,3])
         NUMD = NUMD + numd
     print("Normal finish of pwlNadirSiteDailyStack",prechi,NUMD)
-    return Neq, AtWb, prechi, NUMD, NadirFreq, prefit_sum, prefit_sums
+    return Neq, AtWb, prechi, NUMD, NadirFreq, prefit, prefit_sums
 
 def neqBySite(params,svs,args):
     print("\t Reading in file:",params['filename'])
@@ -727,20 +727,50 @@ def calcPostFitBySite(cl3file,svs,Sol,params,args,modelNum):
                 Apart_4 = (1.-(data[i,2]-nsiz*zenSpacing)/zenSpacing)
                 Apart_5 = (data[i,2]-nsiz*zenSpacing)/zenSpacing
 
-                postfit = postfit + ((data[i,3] - Apart_1 * Sol[iz])/1000.)**2
-                postfit_sums[iz] = postfit_sums[iz] + ((data[i,3] - Apart_1 * Sol[iz])/1000.)**2
+                #postfit = postfit + ((data[i,3] - Apart_1 * Sol[iz])/1000.)**2
+                #postfit_sums[iz] = postfit_sums[iz] + ((data[i,3] - Apart_1 * Sol[iz])/1000.)**2
 
-                postfit = postfit + ((data[i,3] - Apart_2 * Sol[iz+1])/1000.)**2
-                postfit_sums[iz+1] = postfit_sums[iz+1] + ((data[i,3] - Apart_2 * Sol[iz+1])/1000.)**2
+                #postfit = postfit + ((data[i,3] - Apart_2 * Sol[iz+1])/1000.)**2
+                #postfit_sums[iz+1] = postfit_sums[iz+1] + ((data[i,3] - Apart_2 * Sol[iz+1])/1000.)**2
 
-                postfit = postfit + ((data[i,3] - Apart_3 * Sol[pco_iz])/1000.)**2
-                postfit_sums[pco_iz] = postfit_sums[pco_iz] + ((data[i,3] - Apart_3 * Sol[pco_iz])/1000.)**2
+                #postfit = postfit + ((data[i,3] - Apart_3 * Sol[pco_iz])/1000.)**2
+                #postfit_sums[pco_iz] = postfit_sums[pco_iz] + ((data[i,3] - Apart_3 * Sol[pco_iz])/1000.)**2
 
-                postfit = postfit + ((data[i,3] - Apart_4 * Sol[siz])/1000.)**2
-                postfit_sums[siz] = postfit_sums[siz] + ((data[i,3] - Apart_4 * Sol[sol_site])/1000.)**2
+                #postfit = postfit + ((data[i,3] - Apart_4 * Sol[sol_site])/1000.)**2
+                #postfit_sums[siz] = postfit_sums[siz] + ((data[i,3] - Apart_4 * Sol[sol_site])/1000.)**2
 
-                postfit = postfit + ((data[i,3] - Apart_5 * Sol[siz+1])/1000.)**2
-                postfit_sums[siz+1] = postfit_sums[siz+1] + ((data[i,3] - Apart_5 * Sol[sol_site+1])/1000.)**2
+                #postfit = postfit + ((data[i,3] - Apart_5 * Sol[sol_site+1])/1000.)**2
+                #postfit_sums[siz+1] = postfit_sums[siz+1] + ((data[i,3] - Apart_5 * Sol[sol_site+1])/1000.)**2
+
+                postfit = postfit + (( data[i,3] - ( Apart_3*Sol[pco_iz] +
+                                                    Sol[iz]*Apart_1 + Sol[iz+1]*Apart_2 +
+                                                    Sol[sol_site]*Apart_4 + Sol[sol_site+1]*Apart_5 )
+                                    )/1000.)**2
+
+                postfit_sums[iz] = postfit_sums[iz] + (( data[i,3] - ( Apart_3*Sol[pco_iz] +
+                                                        Sol[iz]*Apart_1 + Sol[iz+1]*Apart_2 +
+                                                        Sol[sol_site]*Apart_4 + Sol[sol_site+1]*Apart_5 )
+                                                      )/1000.)**2
+
+                postfit_sums[iz+1] = postfit_sums[iz+1] + (( data[i,3] - ( Apart_3*Sol[pco_iz] +
+                                                            Sol[iz]*Apart_1 + Sol[iz+1]*Apart_2 +
+                                                            Sol[sol_site]*Apart_4 + Sol[sol_site+1]*Apart_5 )
+                                                          )/1000.)**2
+
+                postfit_sums[pco_iz] = postfit_sums[pco_iz] + (( data[i,3] - ( Apart_3*Sol[pco_iz] +
+                                                                Sol[iz]*Apart_1 + Sol[iz+1]*Apart_2 +
+                                                                Sol[sol_site]*Apart_4 + Sol[sol_site+1]*Apart_5 )
+                                                               )/1000.)**2
+
+                postfit_sums[siz] = postfit_sums[siz] + (( data[i,3] - ( Apart_3*Sol[pco_iz] +
+                                                          Sol[iz]*Apart_1 + Sol[iz+1]*Apart_2 +
+                                                          Sol[sol_site]*Apart_4 + Sol[sol_site+1]*Apart_5 )
+                                                        )/1000.)**2
+
+                postfit_sums[siz+1] = postfit_sums[siz+1] + (( data[i,3] - ( Apart_3*Sol[pco_iz] +
+                                                              Sol[iz]*Apart_1 + Sol[iz+1]*Apart_2 +
+                                                              Sol[sol_site]*Apart_4 + Sol[sol_site+1]*Apart_5 )
+                                                        )/1000.)**2
 
     return postfit, postfit_sums, params, modelNum
 
@@ -790,7 +820,7 @@ def setUpPostFitTasks(cl3files,svs,Sol,params,args,tSat,numParamsPerSite,tParams
 
     return postfit, postfit_sums
 
-def prepareSites(cl3files,dt_start,dt_end,args):
+def prepareSites(cl3files,dt_start,dt_end,args,siteIDList):
     #=====================================================================
     # Work out how many station models need to be created 
     #=====================================================================
@@ -812,8 +842,10 @@ def prepareSites(cl3files,dt_start,dt_end,args):
         info['changes']   = changes
         info['sitepos']   = sitepos
         params.append(info)
+        for s in range(0,info['numModels']):
+            siteIDList.append(info['site']+"_model_"+str(s+1))
 
-    return params, numModels
+    return params, numModels, siteIDList
 
 def stackStationNeqs(Neq,AtWb,prefit,prefit_sums,nadir_freq,siteIDList,params,tSat):
     #=====================================================================
@@ -1098,7 +1130,7 @@ if __name__ == "__main__":
 
         # already have the parameters defined if we are loading in the npzfiles..
         if not args.load_file and not args.load_path:
-            params, numModels = prepareSites(cl3files,dt_start,dt_stop,args)
+            params, numModels,siteIDList = prepareSites(cl3files,dt_start,dt_stop,args,siteIDList)
 
         antennas = ant.parseANTEX(args.antex)
         svdat = svnav.parseSVNAV(args.svnavFile)
@@ -1399,13 +1431,14 @@ if __name__ == "__main__":
         print("Calculating post-fit residuals")
         # re calcaulte params based on raw data
         if args.load_file or args.load_path:
-            params, numModels = prepareSites(cl3files,dt_start,dt_stop,args)
+            params, numModels, siteIDList = prepareSites(cl3files,dt_start,dt_stop,args,siteIDList)
 
         multiprocessing.freeze_support()
         postfit, postfit_sums = setUpPostFitTasks(cl3files,svs,Sol,params,args,tSat,numParamsPerSite,np.size(Sol))
         print("Prefit, Postfit, Postfit/Prefit",prefit,postfit,postfit/prefit) #np.sqrt(prechi/numd))
         prefit_svs = np.sum(prefit_sums[0:tSat])
         postfit_svs = np.sum(postfit_sums[0:tSat])
+        print("prefit_sums summed:",np.sum(prefit_sums))
         print("postfit_sums summed:",np.sum(postfit_sums))
         print("SVS Prefit, Postfit, Postfit/Prefit",prefit_svs,postfit_svs,postfit_svs/prefit_svs) #np.sqrt(prechi/numd))
     #=======================================================================================================
