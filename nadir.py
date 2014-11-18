@@ -628,9 +628,11 @@ def calcPostFitBySite(cl3file,svs,Sol,params,svdat,args,modelNum):
 
     postfit = 0.0
     postfit_sums = np.zeros(numParams)
+    postfit_res = np.zeros(numParams)
 
     prefit = 0.0
     prefit_sums = np.zeros(numParams)
+    prefit_res = np.zeros(numParams)
 
     prefit_rms = 0.0
     postfit_rms = 0.0
@@ -751,6 +753,8 @@ def calcPostFitBySite(cl3file,svs,Sol,params,svdat,args,modelNum):
                 dSit = Sol[sol_site] + (Sol[sol_site+1] - Sol[sol_site]) * factor  
 
                 # original 
+                # ratio 0.94 
+                #postfit_rms = (data[i,3] - dNad+dPCO-dSit)**2 
                 #postfit_rms     = (data[i,3] - dNad+dPCO+dSit)**2
                 # ratio ~ 1400
                 # postfit_rms += (data[i,3] +dNad+dPCO-dSit)**2 
@@ -758,15 +762,19 @@ def calcPostFitBySite(cl3file,svs,Sol,params,svdat,args,modelNum):
                 #postfit_rms = (data[i,3] + dNad+dPCO+dSit)**2 
                 # ratio 0.94 
                 #postfit_rms = (data[i,3] - (dNad+dPCO+dSit))**2 
-                # ratio 0.94 
-                postfit_rms = (data[i,3] - dNad-dPCO-dSit)**2 
-                # ratio 0.94 
-                #postfit_rms = (data[i,3] - dNad+dPCO-dSit)**2 
-                prefit_rms += data[i,3]**2 
-                postfit    = postfit + postfit_rms
-                mod_rms    += (dNad+dPCO+dSit)**2
-                numObs += 1
 
+                # ratio 0.94 
+                prefit_rms = data[i,3]**2 
+                prefit     = prefit + prefit_rms
+
+                postfit_rms = (data[i,3] - dNad-dPCO-dSit)**2 
+                postfit    = postfit + postfit_rms
+
+                mod_rms    += (dNad+dPCO+dSit)**2
+
+                post_res = data[i,3] - dNad-dPCO-dSit
+                pre_res = data[i,3]
+                numObs += 1
 
                 #print("Obs pre post:",i,numObs, np.sqrt(data[i,3]**2), np.sqrt(postfit_rms))
 
@@ -776,14 +784,23 @@ def calcPostFitBySite(cl3file,svs,Sol,params,svdat,args,modelNum):
                 postfit_sums[siz]    = postfit_sums[siz]    + postfit_rms
                 postfit_sums[siz+1]  = postfit_sums[siz+1]  + postfit_rms
 
-                prefit_rms     = data[i,3]**2
-                prefit         = prefit + prefit_rms
+                postfit_res[iz]     = postfit_res[iz]     + post_res
+                postfit_res[iz+1]   = postfit_res[iz+1]   + post_res
+                postfit_res[pco_iz] = postfit_res[pco_iz] + post_res
+                postfit_res[siz]    = postfit_res[siz]    + post_res
+                postfit_res[siz+1]  = postfit_res[siz+1]  + post_res
 
                 prefit_sums[iz]     = prefit_sums[iz]     + prefit_rms
                 prefit_sums[iz+1]   = prefit_sums[iz+1]   + prefit_rms
                 prefit_sums[pco_iz] = prefit_sums[pco_iz] + prefit_rms
                 prefit_sums[siz]    = prefit_sums[siz]    + prefit_rms
                 prefit_sums[siz+1]  = prefit_sums[siz+1]  + prefit_rms
+
+                prefit_res[iz]     = prefit_res[iz]     + pre_res
+                prefit_res[iz+1]   = prefit_res[iz+1]   + pre_res
+                prefit_res[pco_iz] = prefit_res[pco_iz] + pre_res
+                prefit_res[siz]    = prefit_res[siz]    + pre_res
+                prefit_res[siz+1]  = prefit_res[siz+1]  + pre_res
 
                 numObs_sums[iz]     = numObs_sums[iz]     + 1
                 numObs_sums[iz+1]   = numObs_sums[iz+1]   + 1
@@ -799,14 +816,15 @@ def calcPostFitBySite(cl3file,svs,Sol,params,svdat,args,modelNum):
     print("post/pre:",postfit_rms/prefit_rms, "diff:", np.sqrt(prefit_rms**2 - postfit_rms**2))
     print("NumObs:",numObs,np.size(numObs_sums))
 
-    return prefit,prefit_sums, postfit, postfit_sums, numObs, numObs_sums, params, modelNum
+    return prefit,prefit_sums,prefit_res, postfit, postfit_sums, postfit_res, numObs, numObs_sums, params, modelNum
 
 def setUpPostFitTasks(cl3files,svs,Sol,params,svdat,args,tSat,numParamsPerSite,tParams):
 
     prefit = 0
     prefit_sums = np.zeros(tParams)
+    prefit_res = np.zeros(tParams)
     postfit = 0
-    postfit_sums = np.zeros(tParams)
+    postfit_res = np.zeros(tParams)
     numObs = 0
     numObs_sums = np.zeros(tParams)
 
@@ -825,7 +843,6 @@ def setUpPostFitTasks(cl3files,svs,Sol,params,svdat,args,tSat,numParamsPerSite,t
     for i in range(0,np.size(cl3files)) :
         print("Submitting job:",params[i]['site'])
         info = params[i]
-        #results.append(pool.apply_async(calcPostFitBySite,(cl3files[i],svs,Sol,params[i],args,mdlCtr)))
         results.append(pool.apply_async(calcPostFitBySite,(cl3files[i],svs,Sol,params[i],svdat,args,mdlCtr)))
         mdlCtr = mdlCtr + params[i]['numModels']
 
@@ -833,12 +850,16 @@ def setUpPostFitTasks(cl3files,svs,Sol,params,svdat,args,tSat,numParamsPerSite,t
     for r in results:
         r.wait()
         print("Waiting for results")
-        prefit_tmp, prefit_sums_tmp, postfit_tmp, postfit_sums_tmp, numObs_tmp, numObs_sums_tmp, info, mdlCtr = r.get()
+        prefit_tmp, prefit_sums_tmp,prefit_res_tmp, postfit_tmp, postfit_sums_tmp,postfit_res_tmp, numObs_tmp, numObs_sums_tmp, info, mdlCtr = r.get()
         print("Received results back")
         prefit = prefit + prefit_tmp
         prefit_sums[0:tSat] = prefit_sums[0:tSat] + prefit_sums_tmp[0:tSat]
+        prefit_res[0:tSat] = prefit_ress[0:tSat] + prefit_res_t[0:tSat]
+
         postfit = postfit + postfit_tmp
         postfit_sums[0:tSat] = postfit_sums[0:tSat] + postfit_sums_tmp[0:tSat]
+        postfit_res[0:tSat] = postfit_res[0:tSat] + postfit_res_tmp[0:tSat]
+
         numObs = numObs + numObs_tmp
         numObs_sums[0:tSat] = numObs_sums[0:tSat] + numObs_sums_tmp[0:tSat]
         #print("RGET:",info['site'],info['numModels'],postfit,mdlCtr,numParamsPerSite)
@@ -850,16 +871,18 @@ def setUpPostFitTasks(cl3files,svs,Sol,params,svdat,args,tSat,numParamsPerSite,t
 
             tmp_start = tSat + numParamsPerSite * ctr 
             tmp_end   = tSat + numParamsPerSite * (ctr+1) # + numParamsPerSite 
-            #print(m,start,end,tmp_start,tmp_end,np.size(Sol))
-            #print("postfit_sums",start,end,np.size(postfit_sums))
-            #print("postfit_sums_tmp",tmp_start,tmp_end,np.size(postfit_sums_tmp))
+
             prefit_sums[start:end] = prefit_sums[start:end] + prefit_sums_tmp[tmp_start:tmp_end]
+            prefit_res[start:end] = prefit_res[start:end] + prefit_res_tmp[tmp_start:tmp_end]
+
             postfit_sums[start:end] = postfit_sums[start:end] + postfit_sums_tmp[tmp_start:tmp_end]
+            postfit_res[start:end] = postfit_res[start:end] + postfit_res_tmp[tmp_start:tmp_end]
+
             numObs_sums[start:end] = numObs_sums[start:end] + numObs_sums_tmp[tmp_start:tmp_end]
 
             ctr += 1
 
-    return prefit, prefit_sums, postfit, postfit_sums, numObs, numObs_sums
+    return prefit, prefit_sums,prefit_res, postfit, postfit_sums,postfit_res, numObs, numObs_sums
 
 def prepareSites(cl3files,dt_start,dt_end,args,siteIDList):
     #=====================================================================
@@ -888,7 +911,6 @@ def prepareSites(cl3files,dt_start,dt_end,args,siteIDList):
 
     return params, numModels, siteIDList
 
-#def stackStationNeqs(Neq,AtWb,prefit,prefit_sums,nadir_freq,siteIDList,params,tSat):
 def stackStationNeqs(Neq,AtWb,nadir_freq,siteIDList,params,tSat):
     #=====================================================================
     # Now read in all of the numpy compressed files
@@ -1483,8 +1505,10 @@ if __name__ == "__main__":
     if args.postfit:
         prefit = 0
         prefit_sums = np.zeros(numParams)
+        prefit_res = np.zeros(numParams)
         postfit = 0
         postfit_sums = np.zeros(numParams)
+        postfit_res = np.zeros(numParams)
         numObs_sums = np.zeros(numParams)
         print("Calculating post-fit residuals")
         # re calcaulte params based on raw data
@@ -1492,7 +1516,7 @@ if __name__ == "__main__":
             params, numModels, siteIDList = prepareSites(cl3files,dt_start,dt_stop,args,siteIDList)
 
         multiprocessing.freeze_support()
-        prefit,prefit_sums,postfit, postfit_sums,numObs,numObs_sums = setUpPostFitTasks(cl3files,svs,Sol,params,svdat,args,tSat,numParamsPerSite,np.size(Sol))
+        prefit,prefit_sums,prefit_res,postfit,postfit_sums,postfit_res,numObs,numObs_sums = setUpPostFitTasks(cl3files,svs,Sol,params,svdat,args,tSat,numParamsPerSite,np.size(Sol))
         #postfit, postfit_sums = setUpPostFitTasks(cl3files,svs,Sol,params,args,tSat,numParamsPerSite,np.size(Sol))
         print("Prefit, Postfit, Postfit/Prefit",prefit,postfit,postfit/prefit) #np.sqrt(prechi/numd))
         prefit_svs = np.sum(prefit_sums[0:tSat])

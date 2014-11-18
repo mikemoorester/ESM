@@ -100,6 +100,9 @@ if __name__ == "__main__":
     #===================================================================
     # Pretty picture optons
     parser.add_argument("--plot",dest="plot",action='store_true',default=False,help="Display plots of prefit and postfit residuals")
+    parser.add_argument("--SATPCV",dest="SATPCV",action='store_true',default=False,help="Display plots of prefit and postfit residuals")
+    parser.add_argument("--SATPCO",dest="SATPCO",action='store_true',default=False,help="Display plots of prefit and postfit residuals")
+    parser.add_argument("--PCV",dest="PCV",action='store_true',default=False,help="Display plots of prefit and postfit residuals")
     #===================================================================
     # Debug function, not needed
     args = parser.parse_args()
@@ -115,16 +118,21 @@ if __name__ == "__main__":
                 print("Loading file:",lfile)
                 if ctr == 0:
                     prefit_sums = npzfile['prefitsum']
+                    prefit_res = npzfile['prefitres']
                     prefit = npzfile['prefit'][0]
 
+                    postfit_res  = npzfile['postfitres']
                     postfit_sums = npzfile['postfitsum']
                     postfit = npzfile['postfit'][0]
 
                     numObs = npzfile['numobs'][0]
                     numObs_sums = npzfile['numobssum']
                 else:
+                    prefit_res = np.add(prefit_res,npzfile['prefitres'])
                     prefit_sums = np.add(prefit_sums,npzfile['prefitsum'])
                     prefit += npzfile['prefit'][0]
+
+                    postfit_res = np.add(postfit_res,npzfile['postfitres'])
                     postfit_sums = np.add(postfit_sums,npzfile['postfitsum'])
                     postfit += npzfile['postfit'][0]
                     numObs += npzfile['numobs'][0]
@@ -252,17 +260,22 @@ if __name__ == "__main__":
         postfit = 0.0
         prefit  = 0.0
         postfit_sums = np.zeros(numParams)
+        postfit_res = np.zeros(numParams)
         prefit_sums = np.zeros(numParams)
+        prefit_res = np.zeros(numParams)
         numObs = 0.0
         numObs_sums = np.zeros(numParams)
         
         #prefit, prefit_sums, postfit, postfit_sums, info, mdlCtr = calcPostFitBySite(cl3files[0],svs,Sol,params[0],args,mdlCtr)
-        prefit_tmp, prefit_sums_tmp, postfit_tmp, postfit_sums_tmp,numObs_tmp,numObs_sums_tmp, info,modelNum = NADIR.calcPostFitBySite(cl3files[0],svs,Sol,params[0],svdat,args,mdlCtr)
+        prefit_tmp, prefit_sums_tmp,prefit_res_tmp, postfit_tmp, postfit_sums_tmp,postfit_res_tmp,numObs_tmp,numObs_sums_tmp, info,modelNum = NADIR.calcPostFitBySite(cl3files[0],svs,Sol,params[0],svdat,args,mdlCtr)
  
         prefit = prefit + prefit_tmp
         prefit_sums[0:tSat] = prefit_sums[0:tSat] + prefit_sums_tmp[0:tSat]
+        prefit_res[0:tSat] = prefit_res[0:tSat] + prefit_res_tmp[0:tSat]
+
         postfit = postfit + postfit_tmp
         postfit_sums[0:tSat] = postfit_sums[0:tSat] + postfit_sums_tmp[0:tSat]
+        postfit_res[0:tSat] = postfit_res[0:tSat] + postfit_res_tmp[0:tSat]
         numObs = numObs + numObs_tmp
         numObs_sums[0:tSat] = numObs_sums[0:tSat] + numObs_sums_tmp[0:tSat]
 
@@ -278,7 +291,9 @@ if __name__ == "__main__":
             #print("postfit_sums",start,end,np.size(postfit_sums))
             #print("postfit_sums_tmp",tmp_start,tmp_end,np.size(postfit_sums_tmp))
             prefit_sums[start:end] = prefit_sums[start:end] + prefit_sums_tmp[tmp_start:tmp_end]
+            prefit_res[start:end] = prefit_res[start:end] + prefit_res_tmp[tmp_start:tmp_end]
             postfit_sums[start:end] = postfit_sums[start:end] + postfit_sums_tmp[tmp_start:tmp_end]
+            postfit_res[start:end] = postfit_res[start:end] + postfit_res_tmp[tmp_start:tmp_end]
             numObs_sums[start:end] = numObs_sums[start:end] + numObs_sums_tmp[tmp_start:tmp_end]
 
             ctr += 1
@@ -292,9 +307,10 @@ if __name__ == "__main__":
         prefitA = [ prefit ]
         postfitA = [ postfit ]
         numobsA = [ numObs ]
-        np.savez_compressed(siteIDSRCH+".pft", prefit=prefitA, prefitsum=prefit_sums, postfit=postfitA, postfitsum=postfit_sums,numobs=numobsA,numobssum=numObs_sums)
+        np.savez_compressed(siteIDSRCH+".pft", prefit=prefitA, prefitsum=prefit_sums,prefitres=prefit_res, postfit=postfitA, postfitsum=postfit_sums,postfitres=postfit_res,numobs=numobsA,numobssum=numObs_sums)
 
-    if args.plot:
+    #===================================================================================================
+    if args.plot or args.SATPCV or args.SATPCO or args.PCV:
         import matplotlib.pyplot as plt
         npzfile = np.load(args.solutionfile2)
         Sol  = npzfile['sol']
@@ -314,6 +330,7 @@ if __name__ == "__main__":
         numParamsPerSat = int(14.0/meta['nadir_grid']) + 2
         variances = np.diag(Cov)
 
+    if args.SATPCV or args.plot:
         ctr = 0
         for svn in svs:
             fig = plt.figure()
@@ -333,11 +350,12 @@ if __name__ == "__main__":
 
             ax2 = fig.add_subplot(312) 
             ax3 = fig.add_subplot(313) 
-            ax2.plot(nad,np.sqrt(prefit_sums[siz:eiz]/numObs_sums[siz:eiz]),'b-')
-            ax2.plot(nad,np.sqrt(postfit_sums[siz:eiz]/numObs_sums[siz:eiz]),'g-')
+            ax2.plot(nad,prefit_res[siz:eiz]/numObs_sums[siz:eiz],'b-')
+            ax2.plot(nad,postfit_res[siz:eiz]/numObs_sums[siz:eiz],'g-')
+
             ax3.plot(nad,np.sqrt(postfit_sums[siz:eiz]/numObs_sums[siz:eiz])/np.sqrt(prefit_sums[siz:eiz]/numObs_sums[siz:eiz]),'r-')
-            ax2.set_ylabel('Residuals (m)',fontsize=8)
-            ax3.set_ylabel('Post/Pre (m)',fontsize=8)
+            ax2.set_ylabel('Residuals (mm)',fontsize=8)
+            ax3.set_ylabel('Post/Pre ',fontsize=8)
             ax3.plot([0,14],[1, 1],'k-')
 
             plt.tight_layout()
@@ -345,7 +363,8 @@ if __name__ == "__main__":
 
             #if ctr > 5:
             #    break
-       
+        
+    if args.plot or args.SATPCO:
         # PCO plots
         fig = plt.figure()
         fig.canvas.set_window_title("PCO_correction.png")
@@ -359,18 +378,19 @@ if __name__ == "__main__":
         for svn in svs:
             eiz = (numParamsPerSat *ctr) -1
             ax.errorbar(ctr,Sol[eiz],yerr=np.sqrt(variances[eiz])/2.,fmt='o')
-            ax2.plot(ctr,np.sqrt(prefit_sums[eiz]/numObs_sums[eiz]),'bo')
-            ax2.plot(ctr,np.sqrt(postfit_sums[eiz]/numObs_sums[eiz]),'go')
+            ax2.plot(ctr,prefit_res[eiz]/numObs_sums[eiz],'bo')
+            ax2.plot(ctr,postfit_res[eiz]/numObs_sums[eiz],'go')
             ax3.plot(ctr,postfit_sums[eiz]/prefit_sums[eiz],'ro')
             xlabels.append(svn)
             xticks.append(ctr)
             ctr += 1
-        ax2.set_ylabel('Residuals (m)',fontsize=8)
-        ax3.set_ylabel('Post/Pre (m)',fontsize=8)
+        ax2.set_ylabel('Residuals (mm)',fontsize=8)
+        ax3.set_ylabel('Post/Pre',fontsize=8)
         ax3.plot([1,ctr],[1, 1],'k-')
         #ax.set_xticks(xticks)
         #ax.set_xticklabels(xlabels,rotation='vertical')
-  
+        
+    if args.plot or args.PCV:
         #========================================
         ele = np.linspace(0,90,numParamsPerSite)
         for snum in range(0,totalSiteModels):
@@ -390,19 +410,19 @@ if __name__ == "__main__":
 
             ax2 = fig.add_subplot(312)
             ax3 = fig.add_subplot(313)
-            ax2.plot(ele,np.sqrt(prefit_sums[siz:eiz]/numObs_sums[siz:eiz]),'b-')
-            ax2.plot(ele,np.sqrt(postfit_sums[siz:eiz]/numObs_sums[siz:eiz]),'g-')
+            ax2.plot(ele,prefit_res[siz:eiz]/numObs_sums[siz:eiz],'b-')
+            ax2.plot(ele,postfit_res[siz:eiz]/numObs_sums[siz:eiz],'g-')
 
             ax3.plot(ele,postfit_sums[siz:eiz]/prefit_sums[siz:eiz],'r-')
             ax3.plot([0,90],[1, 1],'k-')
             ax.set_xlabel('Zenith Angle',fontsize=8)
             ax.set_ylabel('Adjustment to PCV (mm)',fontsize=8)
-            ax2.set_ylabel('Residuals (m)',fontsize=8)
-            ax3.set_ylabel('Post/Pre (m)',fontsize=8)
+            ax2.set_ylabel('Residuals (mm)',fontsize=8)
+            ax3.set_ylabel('Post/Pre',fontsize=8)
             ax.set_xlim([0,90])
 
-            #if snum > 5:
-            #    break
-
+                #if snum > 5:
+                #    break
+    if args.plot or args.SATPCV or args.SATPCO or args.PCV:
         plt.show()
     print("FINISHED")
