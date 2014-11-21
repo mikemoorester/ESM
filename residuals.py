@@ -150,8 +150,8 @@ def parseDPH(dphFile) :
                 if float(line[43:51]) > 1. or float(line[43:51]) < -1.:
                     continue 
                 # if elevation is below 10 degress ignore
-                if float(line[105:112]) < 10:
-                    continue 
+                #if float(line[105:112]) > 80:
+                #    continue 
 
                 dph['epoch'] = int(line[1:5])
                 dph['l1cyc'] = float(line[6:15])

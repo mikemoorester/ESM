@@ -46,9 +46,9 @@ if __name__ == "__main__":
     # Plot options
     #===================================================================
     parser.add_argument('--plot',dest='plot', default=False, action='store_true', help="Produce an elevation dependent plot of ESM phase residuals")
-    parser.add_argument('--satPCO',dest='satPCO', default=False, action='store_true', help="Plot the PCO estimates")
-    parser.add_argument('--satPCV',dest='satPCV', default=False, action='store_true', help="Plot the sat PCV estimates")
-    parser.add_argument('--sitePCV',dest='sitePCV', default=False, action='store_true', help="Plot the site PCV estimates")
+    parser.add_argument('--SATPCO',dest='satPCO', default=False, action='store_true', help="Plot the PCO estimates")
+    parser.add_argument('--SATPCV',dest='satPCV', default=False, action='store_true', help="Plot the sat PCV estimates")
+    parser.add_argument('--SITEPCV',dest='sitePCV', default=False, action='store_true', help="Plot the site PCV estimates")
     parser.add_argument('--ps','--plot_save',dest='plot_save',default=False,action='store_true', help="Save the plots in png format")
 
     #===================================================================

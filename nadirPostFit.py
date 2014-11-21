@@ -271,7 +271,7 @@ if __name__ == "__main__":
  
         prefit = prefit + prefit_tmp
         prefit_sums[0:tSat] = prefit_sums[0:tSat] + prefit_sums_tmp[0:tSat]
-        prefit_res[0:tSat] = prefit_res[0:tSat] + prefit_res_tmp[0:tSat]
+        prefit_res[0:tSat]  = prefit_res[0:tSat] + prefit_res_tmp[0:tSat]
 
         postfit = postfit + postfit_tmp
         postfit_sums[0:tSat] = postfit_sums[0:tSat] + postfit_sums_tmp[0:tSat]
@@ -350,20 +350,32 @@ if __name__ == "__main__":
 
             ax2 = fig.add_subplot(312) 
             ax3 = fig.add_subplot(313) 
-            ax2.plot(nad,prefit_res[siz:eiz]/numObs_sums[siz:eiz],'b-')
-            ax2.plot(nad,postfit_res[siz:eiz]/numObs_sums[siz:eiz],'g-')
+
+            ax2.plot(nad,prefit_res[siz:eiz]/numObs_sums[siz:eiz],'b-',linewidth=2)
+            #ax2.plot(nad,postfit_res[siz:eiz]/numObs_sums[siz:eiz],'g-')
+            stdev = []  # standard deviation of postfit residual
+            mean = []   # mean postfit residual
+            ictr = 0
+            for i in range(siz,eiz):
+                if numObs_sums[i] > 1:
+                    mean.append( postfit_res[i]/numObs_sums[i] )
+                    stdev.append( np.sqrt(postfit_sums[i]/numObs_sums[i] - mean[ictr]**2) )
+                else:
+                    mean.append(0.)
+                    stdev.append(0.)
+                ictr += 1
+            ax2.errorbar(nad,mean,yerr=np.array(stdev)/2.,fmt='g-')
 
             ax3.plot(nad,np.sqrt(postfit_sums[siz:eiz]/numObs_sums[siz:eiz])/np.sqrt(prefit_sums[siz:eiz]/numObs_sums[siz:eiz]),'r-')
             ax2.set_ylabel('Residuals (mm)',fontsize=8)
             ax3.set_ylabel('Post/Pre ',fontsize=8)
             ax3.plot([0,14],[1, 1],'k-')
-
+            ax.set_xlim([0,14])
+            ax2.set_xlim([0,14])
+            ax3.set_xlim([0,14])
             plt.tight_layout()
             ctr = ctr+1
 
-            #if ctr > 5:
-            #    break
-        
     if args.plot or args.SATPCO:
         # PCO plots
         fig = plt.figure()
@@ -387,12 +399,13 @@ if __name__ == "__main__":
         ax2.set_ylabel('Residuals (mm)',fontsize=8)
         ax3.set_ylabel('Post/Pre',fontsize=8)
         ax3.plot([1,ctr],[1, 1],'k-')
+        
         #ax.set_xticks(xticks)
         #ax.set_xticklabels(xlabels,rotation='vertical')
         
     if args.plot or args.PCV:
         #========================================
-        ele = np.linspace(0,90,numParamsPerSite)
+        zen = np.linspace(0,90,numParamsPerSite)
         for snum in range(0,totalSiteModels):
             #fig = plt.figure(figsize=(3.62, 2.76))
             fig = plt.figure()
@@ -406,23 +419,63 @@ if __name__ == "__main__":
             print(titleStr)
             plt.title(titleStr,fontsize=10)
 
-            ax.errorbar(ele,Sol[siz:eiz],yerr=np.sqrt(variances[siz:eiz])/2.)
+            ax.errorbar(zen,Sol[siz:eiz],yerr=np.sqrt(variances[siz:eiz])/2.)
 
             ax2 = fig.add_subplot(312)
             ax3 = fig.add_subplot(313)
-            ax2.plot(ele,prefit_res[siz:eiz]/numObs_sums[siz:eiz],'b-')
-            ax2.plot(ele,postfit_res[siz:eiz]/numObs_sums[siz:eiz],'g-')
 
-            ax3.plot(ele,postfit_sums[siz:eiz]/prefit_sums[siz:eiz],'r-')
+            ax2.plot(zen,prefit_res[siz:eiz]/numObs_sums[siz:eiz],'b-')
+            #ax2.plot(zen,postfit_res[siz:eiz]/numObs_sums[siz:eiz],'g-')
+
+            stdev = []  # standard deviation of postfit residual
+            mean = []   # mean postfit residual
+            ictr = 0
+            for i in range(siz,eiz):
+                if numObs_sums[i] > 1:
+                    mean.append( postfit_res[i]/numObs_sums[i] )
+                    stdev.append( np.sqrt(postfit_sums[i]/numObs_sums[i] - mean[ictr]**2) )
+                else:
+                    mean.append(0.)
+                    stdev.append(0.)
+                ictr += 1
+            ax2.errorbar(zen,mean,yerr=np.array(stdev)/2.,fmt='g-')
+
+            ax3.plot(zen,postfit_sums[siz:eiz]/prefit_sums[siz:eiz],'r-')
             ax3.plot([0,90],[1, 1],'k-')
             ax.set_xlabel('Zenith Angle',fontsize=8)
             ax.set_ylabel('Adjustment to PCV (mm)',fontsize=8)
             ax2.set_ylabel('Residuals (mm)',fontsize=8)
             ax3.set_ylabel('Post/Pre',fontsize=8)
             ax.set_xlim([0,90])
+            ax2.set_xlim([0,90])
+            ax3.set_xlim([0,90])
+            
+        #========================================
+        ele = np.linspace(0,90,numParamsPerSite)
+        fig = plt.figure()
+        ax = fig.add_subplot(211)
+        for snum in range(0,totalSiteModels):
+            siz = numParamsPerSat*numSVS + snum * numParamsPerSite
+            eiz = siz + numParamsPerSite
 
-                #if snum > 5:
-                #    break
+            ax.plot(ele,prefit_res[siz:eiz]/numObs_sums[siz:eiz],'b-')
+            ax.plot(ele,postfit_res[siz:eiz]/numObs_sums[siz:eiz],'g-')
+
+            ax.set_ylabel('Residuals (mm)',fontsize=8)
+            ax.set_xlim([0,90])
+
+        ax2 = fig.add_subplot(212)
+        ctr = 0
+        for svn in svs:
+            siz = numParamsPerSat * ctr
+            eiz = (numParamsPerSat * (ctr+1)) - 1
+
+            ax2.plot(nad,prefit_res[siz:eiz]/numObs_sums[siz:eiz],'b-')
+            ax2.plot(nad,postfit_res[siz:eiz]/numObs_sums[siz:eiz],'g-')
+            ctr += 1
+
+        ax2.set_xlim([0,14]) 
+
     if args.plot or args.SATPCV or args.SATPCO or args.PCV:
         plt.show()
     print("FINISHED")
