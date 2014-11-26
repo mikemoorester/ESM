@@ -518,8 +518,7 @@ def neqBySite(params,svs,args):
         Neq_tmp,AtWb_tmp,prechi_tmp,numd_tmp = pwlNadirSite(site_residuals,svs,params,args.nadir_grid,0.5)
     elif args.model == 'pwlSiteDaily':
         print("Attempting a stack on each day")
-        #Neq_tmp,AtWb_tmp,prechi_tmp,numd_tmp, nadir_freq, prefit_sum, prefit_sums = pwlNadirSiteDailyStack(site_residuals,svs,params,args.nadir_grid,0.5,args.brdc_dir)
-        Neq_tmp,AtWb_tmp,prechi_tmp,numd_tmp, nadir_freq = pwlNadirSiteDailyStack(site_residuals,svs,params,args.nadir_grid,0.5,args.brdc_dir)
+        Neq_tmp,AtWb_tmp,prechi_tmp,numd_tmp, nadir_freq = pwlNadirSiteDailyStack(site_residuals,svs,params,args.nadir_grid,args.zen,args.brdc_dir)
 
     print("Returned Neq, AtWb:",np.shape(Neq_tmp),np.shape(AtWb_tmp),prechi_tmp,numd_tmp,np.shape(nadir_freq))
             
@@ -561,7 +560,6 @@ def setUpTasks(cl3files,svs,opts,params):
 
     return prechi,numd
    
-#def compressNeq(Neq,AtWb,svs,numParamsPerSat,nadir_freq,prefit_sums):
 def compressNeq(Neq,AtWb,svs,numParamsPerSat,nadir_freq):
     # check for any rows/ columns without any observations, if they are empty remove the parameters
     satCtr = 0
@@ -854,7 +852,7 @@ def setUpPostFitTasks(cl3files,svs,Sol,params,svdat,args,tSat,numParamsPerSite,t
         print("Received results back")
         prefit = prefit + prefit_tmp
         prefit_sums[0:tSat] = prefit_sums[0:tSat] + prefit_sums_tmp[0:tSat]
-        prefit_res[0:tSat] = prefit_ress[0:tSat] + prefit_res_t[0:tSat]
+        prefit_res[0:tSat] = prefit_res[0:tSat] + prefit_res_tmp[0:tSat]
 
         postfit = postfit + postfit_tmp
         postfit_sums[0:tSat] = postfit_sums[0:tSat] + postfit_sums_tmp[0:tSat]
@@ -967,7 +965,6 @@ def stackStationNeqs(Neq,AtWb,nadir_freq,siteIDList,params,tSat):
             totalSiteModels = totalSiteModels + 1
             siteIDList.append(params[f]['site'])
 
-    #return Neq, AtWb, svs, prefit, prefit_sums, totalSiteModels, siteIDList, nadir_freq
     return Neq, AtWb, svs, totalSiteModels, siteIDList, nadir_freq
 
 def significantSolution(Sol,Cov):
@@ -984,8 +981,6 @@ def significantSolution(Sol,Cov):
 
 #================================================================================
 if __name__ == "__main__":
-#    import warnings
-#    warnings.filterwarnings("ignore")
 
     import argparse
 
@@ -1062,6 +1057,7 @@ if __name__ == "__main__":
 
     parser.add_argument("--nadir_zero",dest="constrain_nadir_zero",default=False,action='store_true', help="Constrain Nadir to 0")
     parser.add_argument("--zenith_zero",dest="constrain_zenith_zero",default=False,action='store_true', help="Constrain Zenith to 0")
+    parser.add_argument("--nadir_low",dest="constrain_nadir_low",default=0.0,type=float,help="Constrain Nadir angle 13.8, 13.9 and 14.0 to 0 with constraint: <value>")
     #===================================================================
     # Plot options
     parser.add_argument('--plot',dest='plotNadir', default=False, action='store_true', help="Produce an elevation dependent plot of ESM phase residuals")
@@ -1266,7 +1262,6 @@ if __name__ == "__main__":
 
             # remove the unwanted observations after it has been saved to disk
             # as we may want to add to Neq together, which may have observations to satellites not seen in the Neq..
-            #Neq,AtWb,svs,nadir_freq,prefit_sums = compressNeq(Neq,AtWb,svs,numParamsPerSat,nadir_freq,prefit_sums)
             Neq,AtWb,svs,nadir_freq = compressNeq(Neq,AtWb,svs,numParamsPerSat,nadir_freq)
             tSat = np.size(svs) * numParamsPerSat
             numParams = tSat + tSite
@@ -1383,6 +1378,25 @@ if __name__ == "__main__":
                         ind = tSat + (s * numParamsPerSite) 
                         C[ind,ind] = 0.00001
 
+            # constrain the low nadir angle 13.8 ,13.9, 14.0 to 0
+            # as these will have a low number of observations
+            # but a high variance
+            if args.constrain_nadir_low > 0.00000000:
+                for s in range(0,numSVS):
+                    nadir = 13.8
+                    niz = int(np.floor(nadir/args.nadir_grid))
+                    iz = int((numParamsPerSat * s) + niz)
+                    C[iz,iz] = args.constrain_nadir_low 
+
+                    nadir = 13.8
+                    niz = int(np.floor(nadir/args.nadir_grid))
+                    iz = int((numParamsPerSat * s) + niz)
+                    C[iz,iz] = args.constrain_nadir_low
+
+                    nadir = 14.0
+                    niz = int(np.floor(nadir/args.nadir_grid))
+                    iz = int((numParamsPerSat * s) + niz)
+                    C[iz,iz] = args.constrain_nadir_low
 
 
         C_inv = np.linalg.pinv(C)

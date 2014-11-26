@@ -315,7 +315,7 @@ if __name__ == "__main__":
         npzfile = np.load(args.solutionfile2)
         Sol  = npzfile['sol']
         Cov  = npzfile['cov']
-
+        #Sol = NADIR.significantSolution(Sol,Cov)
         # Number of Parameters
         numNADS             = int(14.0/args.nadir_grid) + 1 
         PCOEstimates        = 1

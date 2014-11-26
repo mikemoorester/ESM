@@ -6,6 +6,7 @@ import re
 import gzip
 import calendar
 import os, sys
+import zipfile
 
 from scipy.stats.stats import nanmean, nanmedian, nanstd
 
@@ -102,6 +103,54 @@ def reject_outliers_elevation(data,nSigma,zenSpacing=0.5):
 
     return tmp
 
+def parseAUTCLN(data):
+    asterixRGX = re.compile('\*')
+
+    # look for the satellite nadir residuals
+    # this will be in increment of 0.2 degrees
+    nadirRGX = re.compile('NAMEAN G')
+    cfilesRGX = re.compile('INPUT CFILES:')
+    siteEleRGX = re.compile('ATELV')
+    siteEleHdrRGX = re.compile('ATELV Site')
+
+    autcln = {}
+
+    satNadir = np.zeros((32,70)) 
+    autcln['satNadir'] = satNadir
+    sites = {}
+    autcln['sites'] = sites
+
+    for line in data:
+        if nadirRGX.search(line):
+            prn = int(line[8:11])
+            offset = 12
+            resid = np.zeros(70)
+            for i in range(0,70):
+                start = offset + i*6
+                end = offset + i*6 + 5
+                resid[i] = float(line[start:end].strip())
+            satNadir[prn-1,:] = resid
+        elif cfilesRGX.search(line):
+            year  = int(line[21:25])
+            month = int(line[26:28])
+            day   = int(line[29:31])
+            autcln['date'] = dt.datetime(year,month,day)
+        elif siteEleRGX.search(line):
+            # skip the header
+            if siteEleHdrRGX.search(line):
+                #print("header:",line)
+                continue
+            # save off the A anb B terms to charcaterise the residuals:
+            # RMS^2 = A^2 + B^2/(sin(elv))^2
+            site = str(line[6:10])
+            A    = float(line[12:16])
+            B    = float(line[18:22])
+            sites[site] = {}
+            sites[site]['A'] = A
+            sites[site]['B'] = B
+
+    return autcln 
+
 def parseAUTCLNSUM(autclnFile) :
     """
     autcln = parseDPH(dphFile)
@@ -124,7 +173,8 @@ def parseAUTCLNSUM(autclnFile) :
     autcln = {}
     satNadir = np.zeros((32,70)) 
     autcln['satNadir'] = satNadir
-
+    autcln['network'] = autclnFile[-17] 
+    print("LOOKING at network :",autcln['network'])
     sites = {}
     autcln['sites'] = sites
 
@@ -133,6 +183,7 @@ def parseAUTCLNSUM(autclnFile) :
     file_open = file_opener(autclnFile)
 
     with file_open(autclnFile) as f:
+
         #print("Opend the file",autclnFile)
         for line in f:
             if nadirRGX.search(line):
@@ -205,7 +256,6 @@ def searchAUTCLN(args):
 
     return an array of autcln data structures
 
-
     """
     autclns = []
     autclnFile = 'autcln.post.sum'
@@ -219,6 +269,8 @@ def searchAUTCLN(args):
             autclns.append(autcln)
 
     return autclns
+
+
 #===========================================================================
 if __name__ == "__main__":
 
@@ -238,6 +290,7 @@ if __name__ == "__main__":
                                         help="Format of gps subnetworks")
     parser.add_argument('--ns', dest="nadirDump", default=False, action='store_true', help='Stack the nadir residuals')
     parser.add_argument('--sv', dest="svnavFile", help="Location of GAMIT svnav.dat")
+    parser.add_argument('--zip', dest="zip", help="search zip archive")
     args = parser.parse_args()
     #===================================
    
