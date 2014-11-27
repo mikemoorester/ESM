@@ -19,10 +19,8 @@ import gpsTime as gt
 import GamitStationFile as gsf
 import GamitAprioriFile as gapr
 import svnav
-import broadcastNavigation as brdc
+#import broadcastNavigation as brdc
 import Navigation as rnxN
-
-import scipy as sp
 
 def satelliteModel(antenna,nadirData):
     #assuming a 14 model at 1 deg intervals
@@ -50,239 +48,10 @@ def calcNadirAngle(zen,R=6378.0,r=26378.0):
         r   = geocentric distance of satellite (default = 26378.0)
 
     """
-    #nadeg = np.arcsin(6378.0/26378.0 * np.cos(ele/180.*np.pi)) * 180./np.pi
-    #nadeg = np.degrees(np.arcsin(R/r * np.sin(np.radians(90.-zen)))) # * 180./np.pi
     nadeg = np.degrees(np.arcsin(R/r * np.sin(np.radians(zen)))) # * 180./np.pi
     return nadeg
 
-def pwl(site_residuals, svs, nadSpacing=0.1,):
-    """
-    PWL piece-wise-linear interpolation fit of phase residuals
-    -construct a PWL fit for each azimuth bin, and then paste them all together to get 
-     the full model
-    -inversion is doen within each bin
 
-    cdata -> compressed data
-    """
-    #print("rejecting any residuals greater than 100mm",np.shape(site_residuals))
-    tdata = res.reject_absVal(site_residuals,100.)
-    del site_residuals 
-    #print("rejecting any residuals greater than 5 sigma",np.shape(tdata))
-    #data = res.reject_outliers_elevation(tdata,5,0.5)
-    data = tdata
-    #print("finished outlier detection",np.shape(data))
-    del tdata
-
-    numd = np.shape(data)[0]
-    # add one to make sure we have a linspace which includes 0.0 and 14.0
-    # add another parameter for the zenith PCO estimate
-    numNADS = int(14.0/nadSpacing) + 1 
-    PCOEstimates = 1
-    # 0 => 140 PCV, 141 PCO
-    # 142 => 283 PCV, 284 PCO
-    numSVS = np.size(svs)
-    numParamsPerSat = numNADS + PCOEstimates
-    numParams = numSVS * (numParamsPerSat)
-
-    for i in range(0,numd):
-        # work out the nadir angle
-        nadir = calcNadirAngle(data[i,2])
-        niz = np.floor(nadir/nadSpacing)
-        # work out the svn number
-        svndto =  gt.unix2dt(data[i,0])
-        svn = svnav.findSV_DTO(svdat,data[i,4],svndto)
-
-        svn_search = 'G{:03d}'.format(svn) 
-        ctr = 0
-        for sv in svs:
-            if sv == svn_search:
-                break
-            ctr+=1
-
-        iz = int(numParamsPerSat * ctr + niz)
-        pco_iz = int(numParamsPerSat *ctr + numParamsPerSat -1)
-
-        if iz >= numParams or pco_iz > numParams:
-            print("prn,svn_search,svn,ctr,size(svs),niz,iz,nadir,numParams:",data[i,4],svn_search,svn,ctr,np.size(svs),niz,iz,nadir,numParams)
-            print(svs)
-
-        Apart_1 = (1.-(nadir-niz*nadSpacing)/nadSpacing)
-        Apart_2 = (nadir-niz*nadSpacing)/nadSpacing
-        # Now  add in the PCO offsest into the Neq
-        Apart_3 = 1./np.sin(np.radians(nadir)) 
-
-        w = 1. #np.sin(data[i,2]/180.*np.pi)
-        
-        Neq[iz,iz]         += (Apart_1*Apart_1) * 1./w**2
-        Neq[iz,iz+1]       += (Apart_1*Apart_2) * 1./w**2
-        Neq[iz,pco_iz]     += (Apart_1*Apart_3) * 1./w**2
-        Neq[iz+1,iz]       += (Apart_2*Apart_1) * 1./w**2
-        Neq[iz+1,iz+1]     += (Apart_2*Apart_2) * 1./w**2
-        Neq[iz+1,pco_iz]   += (Apart_2*Apart_3) * 1./w**2
-        Neq[pco_iz,iz]     += (Apart_3*Apart_1) * 1./w**2
-        Neq[pco_iz,iz+1]   += (Apart_3*Apart_2) * 1./w**2
-        Neq[pco_iz,pco_iz] += (Apart_3*Apart_3) * 1./w**2
-
-        AtWb[iz]     += Apart_1 * data[i,3] * 1./w**2
-        AtWb[iz+1]   += Apart_2 * data[i,3] * 1./w**2
-        AtWb[pco_iz] += Apart_3 * data[i,3] * 1./w**2
-
-    return Neq, AtWb
-
-def pwlNadirSite(site_residuals, svs, params, nadSpacing=0.1,zenSpacing=0.5):
-    """
-    Create a model for the satellites and sites at the same time.
-    PWL piece-wise-linear interpolation fit of phase residuals
-    -construct a PWL fit for each azimuth bin, and then paste them all together to get 
-     the full model
-    -inversion is done within each bin
-
-    cdata -> compressed data
-    """
-
-    # add one to make sure we have a linspace which includes 0.0 and 14.0
-    # add another parameter for the zenith PCO estimate
-    numNADS = int(14.0/nadSpacing) + 1 
-    PCOEstimates = 1
-    numSVS = np.size(svs)
-    numParamsPerSat = numNADS + PCOEstimates
-    tSat = numParamsPerSat * numSVS
-
-    numParamsPerSite = int(90.0/zenSpacing) + 1
-    tSite = numParamsPerSite*params['numModels']
-    #numParams = numSVS * (numParamsPerSat) + numParamsPerSite*params['numModels']
-    numParams = tSat + tSite 
-
-    #print("\t Have:",numParams,"parameters to solve for",params['site'],"Number of Models:",params['numModels'])
-    print("------------------------------------------------")
-    print("Processing Site:                        ",params['site'])
-    print("------------------------------------------------")
-    print("Sat Params:----------------",numParamsPerSat)
-    print("Number of Sats:------------",np.size(svs))
-    print("Total satellite parameters:-------------",tSat)
-    print("Site Params:---------------",numParamsPerSite)
-    print("Number of Models:----------",params['numModels'])
-    print("Total Site Params:----------------------",tSite)
-    print("------------------------------------------------")
-    print("Total Params:---------------------------",numParams)
-    print("------------------------------------------------")
-
-    # Creating matrices
-    Neq = np.zeros((numParams,numParams))
-    AtWb = np.zeros(numParams)
-    change = params['changes']
-
-    for m in range(0,int(params['numModels'])):
-        print(params['site'],"----> creating model",m+1,"of",params['numModels'])
-
-        # start_yyyy and start_ddd should always be defind, however stop_dd may be absent
-        #ie no changes have ocured since the last setup
-        minVal_dt = gt.ydhms2dt(change['start_yyyy'][m],change['start_ddd'][m],0,0,0)
-
-        if np.size(change['stop_ddd']) > m  :
-            maxVal_dt = gt.ydhms2dt(change['stop_yyyy'][m],change['stop_ddd'][m],23,59,59)
-            print("Min:",minVal_dt,"Max:",maxVal_dt,m,np.size(change['stop_ddd']))
-            criterion = ( ( site_residuals[:,0] >= calendar.timegm(minVal_dt.utctimetuple()) ) &
-                    ( site_residuals[:,0] < calendar.timegm(maxVal_dt.utctimetuple()) ) )
-        else:
-            criterion = ( site_residuals[:,0] >= calendar.timegm(minVal_dt.utctimetuple()) ) 
-
-        mind = np.array(np.where(criterion))[0]
-        #print("rejecting any residuals greater than 100mm",np.shape(site_residuals))
-        tdata = res.reject_absVal(site_residuals[mind,:],100.)
-        if m >= (int(params['numModels']) -1 ):
-            del site_residuals
-
-        #print("rejecting any residuals greater than 5 sigma",np.shape(tdata))
-        data = res.reject_outliers_elevation(tdata,5,0.5)
-        #print("finished outlier detection",np.shape(data))
-        del tdata
-
-        a,b = res.gamitWeight(data)
-        print("GAMIT:",a,b)
-        # Get the total number of observations for this site
-        numd = np.shape(data)[0]
-        #print("Have:",numd,"observations")
-        for i in range(0,numd):
-            # work out the nadir angle
-            nadir = calcNadirAngle(data[i,2])
-            niz = int(np.floor(nadir/nadSpacing))
-
-            nsiz = int(np.floor(data[i,2]/zenSpacing))
-            siz = int( tSat +  m*numParamsPerSite + nsiz)
-
-            # work out the svn number
-            svndto =  gt.unix2dt(data[i,0])
-            svn = svnav.findSV_DTO(svdat,data[i,4],svndto)
-            svn_search = 'G{:03d}'.format(svn) 
-            ctr = 0
-            for sv in svs:
-                if sv == svn_search:
-                    break
-                ctr+=1
-
-            #w = np.sin(np.radians(data[i,2]))
-            w = a**2 + b**2/np.sin(np.radians(data[i,2]))**2
-            iz = int(numParamsPerSat * ctr + niz)
-            pco_iz = int(numParamsPerSat *ctr + numNADS )
-
-            #print("Indices m,iz,pco_iz,siz:",m,iz,pco_iz,siz,i,numd)
-            # Nadir partials..
-            #Apart_1 = (1.-(nadir-niz*nadSpacing)/nadSpacing)
-            #Apart_2 = (nadir-niz*nadSpacing)/nadSpacing
-            # PCO partial ...
-            #Apart_3 = 1./np.sin(np.radians(nadir)) 
-            # Site partials
-            #Apart_4 = (1.-(data[i,2]-nsiz*zenSpacing)/zenSpacing)
-            #Apart_5 = (data[i,2]-nsiz*zenSpacing)/zenSpacing
-            #print("Finished forming Design matrix")
-            Apart_1 = - np.sin(nadir)
-            Apart_3 = 1. -np.sin(nadir)
-            Apart_4 = 1.
-            #print("Starting AtWb",np.shape(AtWb),iz,pco_iz,siz)
-            AtWb[iz]     = AtWb[iz]     + Apart_1 * data[i,3] * 1./w**2
-            #AtWb[iz+1]   = AtWb[iz+1]   + Apart_2 * data[i,3] * 1./w**2
-            AtWb[pco_iz] = AtWb[pco_iz] + Apart_3 * data[i,3] * 1./w**2
-            AtWb[siz]    = AtWb[siz]    + Apart_4 * data[i,3] * 1./w**2
-            #AtWb[siz+1]  = AtWb[siz+1]  + Apart_5 * data[i,3] * 1./w**2
-            #print("Finished forming b vector")
-
-            Neq[iz,iz]     = Neq[iz,iz]     + Apart_1 * Apart_1 * 1./w**2
-            #Neq[iz,iz+1]   = Neq[iz,iz+1]   + Apart_1 * Apart_2 * 1./w**2
-            Neq[iz,pco_iz] = Neq[iz,pco_iz] + Apart_1 * Apart_3 * 1./w**2
-            Neq[iz,siz]    = Neq[iz,siz]    + Apart_1 * Apart_4 * 1./w**2
-            #Neq[iz,siz+1]  = Neq[iz,siz+1]  + Apart_1 * Apart_5 * 1./w**2
-
-            #Neq[iz+1,iz]     = Neq[iz+1,iz]     + Apart_2 * Apart_1 * 1./w**2
-            #Neq[iz+1,iz+1]   = Neq[iz+1,iz+1]   + Apart_2 * Apart_2 * 1./w**2
-            #Neq[iz+1,pco_iz] = Neq[iz+1,pco_iz] + Apart_2 * Apart_3 * 1./w**2
-            #Neq[iz+1,siz]    = Neq[iz+1,siz]    + Apart_2 * Apart_4 * 1./w**2
-            #Neq[iz+1,siz+1]  = Neq[iz+1,siz+1]  + Apart_2 * Apart_5 * 1./w**2
-            #print("Finished NEQ Nadir estimates")
-            
-            Neq[pco_iz,iz]     = Neq[pco_iz,iz]     + Apart_3 * Apart_1 * 1./w**2
-            #Neq[pco_iz,iz+1]   = Neq[pco_iz,iz+1]   + Apart_3 * Apart_2 * 1./w**2
-            Neq[pco_iz,pco_iz] = Neq[pco_iz,pco_iz] + Apart_3 * Apart_3 * 1./w**2
-            Neq[pco_iz,siz]    = Neq[pco_iz,siz]    + Apart_3 * Apart_4 * 1./w**2
-            #Neq[pco_iz,siz+1]  = Neq[pco_iz,siz+1]  + Apart_3 * Apart_5 * 1./w**2
-            #print("Finished NEQ PCO estimates")
-
-            Neq[siz,iz]     = Neq[siz,iz]     + Apart_4 * Apart_1 * 1./w**2
-            #Neq[siz,iz+1]   = Neq[siz,iz+1]   + Apart_4 * Apart_2 * 1./w**2
-            Neq[siz,pco_iz] = Neq[siz,pco_iz] + Apart_4 * Apart_3 * 1./w**2
-            Neq[siz,siz]    = Neq[siz,siz]    + Apart_4 * Apart_4 * 1./w**2
-            #Neq[siz,siz+1]  = Neq[siz,siz+1]  + Apart_4 * Apart_5 * 1./w**2
-
-            #Neq[siz+1,iz]     = Neq[siz+1,iz]     + Apart_5 * Apart_1 * 1./w**2
-            #Neq[siz+1,iz+1]   = Neq[siz+1,iz+1]   + Apart_5 * Apart_2 * 1./w**2
-            #Neq[siz+1,pco_iz] = Neq[siz+1,pco_iz] + Apart_5 * Apart_3 * 1./w**2
-            #Neq[siz+1,siz]    = Neq[siz+1,siz]    + Apart_5 * Apart_4 * 1./w**2
-            #Neq[siz+1,siz+1]  = Neq[siz+1,siz+1]  + Apart_5 * Apart_5 * 1./w**2
-            #print("Finished NEQ Site estimates")
-
-    prechi = np.dot(data[:,3].T,data[:,3])
-    print("Normal finish of pwlNadirSite",prechi,numd)
-    return Neq, AtWb, prechi, numd
 
 def pwlNadirSiteDailyStack(site_residuals, svs, params, nadSpacing=0.1,zenSpacing=0.5,brdc_dir="./"):
     """
@@ -387,7 +156,6 @@ def pwlNadirSiteDailyStack(site_residuals, svs, params, nadSpacing=0.1,zenSpacin
 
             # parse the broadcast navigation file for this day to get an accurate
             # nadir angle
-            year = minDTO.strftime("%Y") 
             yy = minDTO.strftime("%y") 
             doy = minDTO.strftime("%j") 
             navfile = brdc_dir + 'brdc'+ doy +'0.'+ yy +'n'
@@ -509,26 +277,297 @@ def pwlNadirSiteDailyStack(site_residuals, svs, params, nadSpacing=0.1,zenSpacin
     #return Neq, AtWb, prechi, NUMD, NadirFreq, prefit, prefit_sums
     return Neq, AtWb, prechi, NUMD, NadirFreq
 
+#==============================================================================
+def pwlNadirSiteAZDailyStack(site_residuals, svs, params, apr, nadSpacing=0.1, zenSpacing=0.5, azSpacing=0.5, brdc_dir="./"):
+    """
+    Create a model for the satellites and sites at the same time.
+    PWL piece-wise-linear interpolation fit of phase residuals
+    -construct a PWL fit for each azimuth bin, and then paste them all together to get 
+     the full model
+    -inversion is done within each bin
+
+    site_residuals = the one-way L3 post-fit, ambiguity fixed phase residuals
+    svs = an array of satellite SVN numbers that are spacebourne/operating
+          for the period of this residual stack
+    params = meta data about the solution bein attempted
+             ['site'] = 4 char site id
+             ['changes'] = dictionary of when model changes need to be applied
+    apr = satellite apriori data
+    
+    """
+    prechi = 0
+    NUMD   = 0
+    # add one to make sure we have a linspace which includes 0.0 and 14.0
+    # add another parameter for the zenith PCO estimate
+    numNADS = int(14.0/nadSpacing) + 1 
+    PCOEstimates = 1
+    numSVS = np.size(svs)
+    numParamsPerSat = numNADS + PCOEstimates
+    tSat = numParamsPerSat * numSVS
+
+    nZen = int(90.0/zenSpacing) + 1
+    nAz = int(360./azSpacing) 
+    numParamsPerSite = nZen * nAz
+    tSite = numParamsPerSite*params['numModels']
+    numParams = tSat + tSite 
+
+    print("------------------------------------------------")
+    print("Processing Site:                        ",params['site'])
+    print("------------------------------------------------")
+    print("Sat Params:----------------",numParamsPerSat)
+    print("Number of Sats:------------",np.size(svs))
+    print("Total satellite parameters:-------------",tSat)
+    print("Site Params:---------------",numParamsPerSite)
+    print("Number of Models:----------",params['numModels'])
+    print("Total Site Params:----------------------",tSite)
+    print("------------------------------------------------")
+    print("Total Params:---------------------------",numParams)
+    print("------------------------------------------------")
+
+    # Creating matrices
+    Neq = np.zeros((numParams,numParams))
+    AtWb = np.zeros(numParams)
+    change = params['changes']
+    print("Changes for site",params['site'],change)
+    # keep track of how may observations are in each bin
+    NadirFreq = np.zeros((numSVS,numNADS))
+    SiteFreq = np.zeros((nAz,nZen))
+
+    # create a new model everythime there has been a change of antenna
+    for m in range(0,int(params['numModels'])):
+        print(params['site'],"----> creating model",m+1,"of",params['numModels'])
+
+        # start_yyyy and start_ddd should always be defind, however stop_dd may be absent
+        #ie no changes have ocured since the last setup
+        minVal_dt = gt.ydhms2dt(change['start_yyyy'][m],change['start_ddd'][m],0,0,0)
+
+        if np.size(change['stop_ddd']) > m  :
+            maxVal_dt = gt.ydhms2dt(change['stop_yyyy'][m],change['stop_ddd'][m],23,59,59)
+            print("Min:",minVal_dt,"Max:",maxVal_dt,m,np.size(change['stop_ddd']))
+            criterion = ( ( site_residuals[:,0] >= calendar.timegm(minVal_dt.utctimetuple()) ) &
+                    ( site_residuals[:,0] < calendar.timegm(maxVal_dt.utctimetuple()) ) )
+        else:
+            criterion = ( site_residuals[:,0] >= calendar.timegm(minVal_dt.utctimetuple()) ) 
+            maxVal_dt = gt.unix2dt(site_residuals[-1,0])
+
+        # get the residuals for this model time period
+        mind = np.array(np.where(criterion))[0]
+        model_residuals = site_residuals[mind,:]
+        diff_dt = maxVal_dt - minVal_dt
+        numDays = diff_dt.days + 1
+        print("Have a total of",numDays,"days")
+
+        # set up a lookup dictionary
+        lookup_svs = {}
+        lctr = 0
+        for sv in svs:
+            lookup_svs[str(sv)] = lctr
+            lctr+=1
+
+        site_geocentric_distance = np.linalg.norm(params['sitepos'])
+
+        for d in range(0,numDays):
+            minDTO = minVal_dt + dt.timedelta(days = d)
+            maxDTO = minVal_dt + dt.timedelta(days = d+1)
+            #print(d,"Stacking residuals on:",minDTO,maxDTO)
+            criterion = ( ( model_residuals[:,0] >= calendar.timegm(minDTO.utctimetuple()) ) &
+                          ( model_residuals[:,0] < calendar.timegm(maxDTO.utctimetuple()) ) )
+            tind = np.array(np.where(criterion))[0]
+
+            # if there are less than 300 obs, then skip to the next day
+            if np.size(tind) < 300:
+                continue
+
+            #print("rejecting any residuals greater than 100mm",np.shape(site_residuals))
+            tdata = res.reject_absVal(model_residuals[tind,:],100.)
+
+            #print("rejecting any residuals greater than 5 sigma",np.shape(tdata))
+            data = res.reject_outliers_elevation(tdata,5,0.5)
+            #print("finished outlier detection",np.shape(data))
+            del tdata
+
+            # determine the elevation dependent weighting
+            a,b = res.gamitWeight(data)
+            #print("Gamit Weighting:",minDTO,a,b)
+
+            # parse the broadcast navigation file for this day to get an accurate
+            # nadir angle
+            yy = minDTO.strftime("%y") 
+            doy = minDTO.strftime("%j") 
+            navfile = brdc_dir + 'brdc'+ doy +'0.'+ yy +'n'
+            #print("Will read in the broadcast navigation file:",navfile)
+            nav = rnxN.parseFile(navfile)
+
+            # Get the total number of observations for this site
+            numd = np.shape(data)[0]
+            #print("Have:",numd,"observations")
+            for i in range(0,numd):
+                # work out the svn number
+                svndto =  gt.unix2dt(data[i,0])
+                svn = svnav.findSV_DTO(svdat,data[i,4],svndto)
+                svn_search = 'G{:03d}'.format(svn) 
+                #print("Looking for:",svn_search,lookup_svs)
+                ctr = lookup_svs[str(svn_search)]
+                #print("Position is CTR:",ctr,data[i,4])
+                try:
+                    # get the satellite position
+                    svnpos = rnxN.satpos(data[i,4],svndto,nav)
+                    #print("SVNPOS:",svnpos[0])
+                    satnorm = np.linalg.norm(svnpos[0])
+                    #print("NORM:",np.linalg.norm(svnpos[0]))
+                except:
+                    print("Error calculation satelite position for",svndto,data[i,:])
+                    continue
+
+                # work out the nadir angle
+                #oldnadir = calcNadirAngle(data[i,2])
+                nadir = calcNadirAngle(data[i,2],site_geocentric_distance,satnorm)
+                #print("Ele {:.2f} Old: {:.2f} New:{:.2f}".format(data[i,2],oldnadir,nadir))
+                #print("Ele {:.2f} New:{:.2f}".format(data[i,2],nadir))
+                w = a**2 + b**2/np.sin(np.radians(90.-data[i,2]))**2
+                w = 1./w
+
+                # Work out the indices for the satellite parameters
+                niz = int(np.floor(nadir/nadSpacing))
+                iz = int((numParamsPerSat * ctr) + niz)
+                pco_iz = numParamsPerSat * (ctr+1) - 1 
+
+                # work out the location of site parameters
+                nsiz = int(np.floor(data[i,2]/zenSpacing))
+                aiz = int(np.floor(data[i,1]/azSpacing))
+                
+                siz = int( tSat +  (m*numParamsPerSite) + (aiz * nZen) + nsiz)
+
+                # check that the indices are not overlapping
+                if iz+1 >= pco_iz or iz >= pco_iz:
+                    #print("WARNING in indices iz+1 = pco_iz skipping obs",nadir,iz,pco_iz)
+                    continue
+
+                NadirFreq[ctr,niz] = NadirFreq[ctr,niz] +1
+                SiteFreq[aiz,nsiz] = SiteFreq[aiz,nsiz] +1
+                #
+                # R = SITE_PCV_ERR + SAT_PCV_ERR + SAT_PCO_ERR * cos(nadir)
+                #
+                # dR/dSITE_PCV_ERR = 1
+                # dR/dSAT_PCV_ERR  = 1 
+                # dR/dSAT_PCO_ERR  = cos(nadir)
+                #
+                # nice partial derivative tool:
+                #  http://www.symbolab.com/solver/partial-derivative-calculator
+                #
+                # Nadir partials..
+                Apart_1 = (1.-(nadir-niz*nadSpacing)/nadSpacing)
+                Apart_2 = (nadir-niz*nadSpacing)/nadSpacing
+                #
+                # PCO partial ...
+                #Apart_3 = -np.sin(np.radians(nadir)) 
+                Apart_3 = np.cos(np.radians(nadir)) 
+
+                # Site partials
+                Apart_4 = (1.-(data[i,2]-nsiz*zenSpacing)/zenSpacing)
+                Apart_5 = (data[i,2]-nsiz*zenSpacing)/zenSpacing
+                #print("Finished forming Design matrix")
+                
+
+                #print("Starting AtWb",np.shape(AtWb),iz,pco_iz,siz)
+                AtWb[iz]     = AtWb[iz]     + Apart_1 * data[i,3] * w
+                AtWb[iz+1]   = AtWb[iz+1]   + Apart_2 * data[i,3] * w
+                AtWb[pco_iz] = AtWb[pco_iz] + Apart_3 * data[i,3] * w
+                AtWb[siz]    = AtWb[siz]    + Apart_4 * data[i,3] * w
+                AtWb[siz+1]  = AtWb[siz+1]  + Apart_5 * data[i,3] * w
+                #print("Finished forming b vector")
+
+                Neq[iz,iz]     = Neq[iz,iz]     + (Apart_1 * Apart_1 * w)
+                Neq[iz,iz+1]   = Neq[iz,iz+1]   + (Apart_1 * Apart_2 * w)
+                Neq[iz,pco_iz] = Neq[iz,pco_iz] + (Apart_1 * Apart_3 * w)
+                Neq[iz,siz]    = Neq[iz,siz]    + (Apart_1 * Apart_4 * w)
+                Neq[iz,siz+1]  = Neq[iz,siz+1]  + (Apart_1 * Apart_5 * w)
+
+                Neq[iz+1,iz]     = Neq[iz+1,iz]     + (Apart_2 * Apart_1 * w)
+                Neq[iz+1,iz+1]   = Neq[iz+1,iz+1]   + (Apart_2 * Apart_2 * w)
+                Neq[iz+1,pco_iz] = Neq[iz+1,pco_iz] + (Apart_2 * Apart_3 * w)
+                Neq[iz+1,siz]    = Neq[iz+1,siz]    + (Apart_2 * Apart_4 * w)
+                Neq[iz+1,siz+1]  = Neq[iz+1,siz+1]  + (Apart_2 * Apart_5 * w)
+                #print("Finished NEQ Nadir estimates")
+            
+                Neq[pco_iz,iz]     = Neq[pco_iz,iz]     + (Apart_3 * Apart_1 * w)
+                Neq[pco_iz,iz+1]   = Neq[pco_iz,iz+1]   + (Apart_3 * Apart_2 * w)
+                Neq[pco_iz,pco_iz] = Neq[pco_iz,pco_iz] + (Apart_3 * Apart_3 * w)
+                Neq[pco_iz,siz]    = Neq[pco_iz,siz]    + (Apart_3 * Apart_4 * w)
+                Neq[pco_iz,siz+1]  = Neq[pco_iz,siz+1]  + (Apart_3 * Apart_5 * w)
+                #print("Finished NEQ PCO estimates")
+
+                Neq[siz,iz]     = Neq[siz,iz]     + (Apart_4 * Apart_1 * w)
+                Neq[siz,iz+1]   = Neq[siz,iz+1]   + (Apart_4 * Apart_2 * w)
+                Neq[siz,pco_iz] = Neq[siz,pco_iz] + (Apart_4 * Apart_3 * w)
+                Neq[siz,siz]    = Neq[siz,siz]    + (Apart_4 * Apart_4 * w)
+                Neq[siz,siz+1]  = Neq[siz,siz+1]  + (Apart_4 * Apart_5 * w)
+
+                Neq[siz+1,iz]     = Neq[siz+1,iz]     + (Apart_5 * Apart_1 * w)
+                Neq[siz+1,iz+1]   = Neq[siz+1,iz+1]   + (Apart_5 * Apart_2 * w)
+                Neq[siz+1,pco_iz] = Neq[siz+1,pco_iz] + (Apart_5 * Apart_3 * w)
+                Neq[siz+1,siz]    = Neq[siz+1,siz]    + (Apart_5 * Apart_4 * w)
+                Neq[siz+1,siz+1]  = Neq[siz+1,siz+1]  + (Apart_5 * Apart_5 * w)
+                #print("Finished NEQ Site estimates")
+                
+                if siz == pco_iz:
+                    print("ERROR in indices siz = pco_iz")
+
+        prechi = prechi + np.dot(data[:,3].T,data[:,3])
+        NUMD = NUMD + numd
+    print("Normal finish of pwlNadirSiteDailyStack",prechi,NUMD)
+    #return Neq, AtWb, prechi, NUMD, NadirFreq, prefit, prefit_sums
+    return Neq, AtWb, prechi, NUMD, NadirFreq, SiteFreq
+
 def neqBySite(params,svs,args):
     print("\t Reading in file:",params['filename'])
     site_residuals = res.parseConsolidatedNumpy(params['filename'])
-    if args.model == 'pwl':
-        Neq_tmp,AtWb_tmp = pwl(site_residuals,svs,args.nadir_grid)
-    elif args.model == 'pwlSite':
-        Neq_tmp,AtWb_tmp,prechi_tmp,numd_tmp = pwlNadirSite(site_residuals,svs,params,args.nadir_grid,0.5)
-    elif args.model == 'pwlSiteDaily':
+
+ #   if args.model == 'pwl':
+ #       Neq_tmp,AtWb_tmp = pwl(site_residuals,svs,args.nadir_grid)
+ #   elif args.model == 'pwlSite':
+ #       Neq_tmp,AtWb_tmp,prechi_tmp,numd_tmp = pwlNadirSite(site_residuals,svs,params,args.nadir_grid,0.5)
+
+    if args.model == 'pwlSiteDaily':
         print("Attempting a stack on each day")
         #Neq_tmp,AtWb_tmp,prechi_tmp,numd_tmp, nadir_freq, prefit_sum, prefit_sums = pwlNadirSiteDailyStack(site_residuals,svs,params,args.nadir_grid,0.5,args.brdc_dir)
-        Neq_tmp,AtWb_tmp,prechi_tmp,numd_tmp, nadir_freq = pwlNadirSiteDailyStack(site_residuals,svs,params,args.nadir_grid,0.5,args.brdc_dir)
+        Neq_tmp,AtWb_tmp,prechi_tmp,numd_tmp, nadir_freq, obs_freq = pwlNadirSiteDailyStack(site_residuals,svs,params,args.nadir_grid,args.zen,args.brdc_dir)
+    elif args.model == 'pwlSiteAzDaily':
+        # check to see if we are adding in the satellite info first
+        numNADS = int(14.0/args.nadir_grid) + 1 
+        PCOEstimates = 1
+        numSVS = np.size(svs)
+        numParamsPerSat = numNADS + PCOEstimates
+        tSat = numParamsPerSat * numSVS
 
+        nZen = int(90.0/args.zen) + 1
+        nAz = int(360./args.az) 
+        numParamsPerSite = nZen * nAz
+        tSite = numParamsPerSite*params['numModels']
+        numParams = tSat + tSite 
+        apr = np.zeros(numParams)
+        
+        if args.sol_apriori:
+            npzfile = np.load(args.solutionfile2)
+            Sol  = npzfile['Sol']
+            for s in range(0,np.size(Sol)):
+                apr[s] = Sol[s]
+            del Sol, npzfile
+
+        nadir_freq = np.add(nadir_freq,npzfile['nadirfreq'])
+        Neq_tmp,AtWb_tmp,prechi_tmp,numd_tmp, nadir_freq,obs_freq = pwlNadirSiteDailyStack(site_residuals,svs,params,apr,args.nadir_grid,args.zen,args.az,args.brdc_dir)
+        
     print("Returned Neq, AtWb:",np.shape(Neq_tmp),np.shape(AtWb_tmp),prechi_tmp,numd_tmp,np.shape(nadir_freq))
             
     sf = params['filename']+".npz"
     prechis = [prechi_tmp]
     numds = [numd_tmp]
     
-    np.savez_compressed(sf,neq=Neq_tmp,atwb=AtWb_tmp,svs=svs,prechi=prechis,numd=numds,nadirfreq=nadir_freq)
-
+    if args.model == 'pwlSiteDaily':
+        np.savez_compressed(sf,neq=Neq_tmp,atwb=AtWb_tmp,svs=svs,prechi=prechis,numd=numds,nadirfreq=nadir_freq)
+    elif args.model == 'pwlSiteAzDaily':
+        np.savez_compressed(sf,neq=Neq_tmp,atwb=AtWb_tmp,svs=svs,prechi=prechis,numd=numds,nadirfreq=nadir_freq,obsfreq=obs_freq)
+        
     return prechi_tmp, numd_tmp 
 
 def setUpTasks(cl3files,svs,opts,params):
@@ -539,8 +578,6 @@ def setUpTasks(cl3files,svs,opts,params):
 
     if opts.cpu < NUMBER_OF_PROCESSES:
         NUMBER_OF_PROCESSES = int(opts.cpu)
-
-    #print("Creating a pool of {:d} processes".format(NUMBER_OF_PROCESSES))
 
     pool = multiprocessing.Pool(NUMBER_OF_PROCESSES)
 
@@ -561,7 +598,6 @@ def setUpTasks(cl3files,svs,opts,params):
 
     return prechi,numd
    
-#def compressNeq(Neq,AtWb,svs,numParamsPerSat,nadir_freq,prefit_sums):
 def compressNeq(Neq,AtWb,svs,numParamsPerSat,nadir_freq):
     # check for any rows/ columns without any observations, if they are empty remove the parameters
     satCtr = 0
@@ -614,6 +650,78 @@ def compressNeq(Neq,AtWb,svs,numParamsPerSat,nadir_freq):
     #return Neq, AtWb, svs, nadir_freq, prefit_sums
     return Neq, AtWb, svs, nadir_freq
 
+def AzStripNeq(Neq,AtWb,svs,args,azimuth):
+    # check for any rows/ columns without any observations, if they are empty remove the parameters
+
+    numNADS = int(14.0/args.nadir_grid) + 1 
+    PCOEstimates = 1
+    numSVS = np.size(svs)
+    numParamsPerSat = numNADS + PCOEstimates
+    tSat = numParamsPerSat * numSVS
+
+    nZen = int(90.0/args.zen) + 1
+    nAz = int(360./args.az) 
+    numParamsPerSite = nZen * nAz
+    tSite = numParamsPerSite*params['numModels']
+    numParams = tSat + tSite 
+
+    satCtr = 0
+    starts = []
+    ends   = []
+    remove = []
+
+    # First remove any azimuth not in the requested strip
+    nsiz = int(np.floor(data[i,2]/zenSpacing))
+    aiz = int(np.floor(data[i,1]/azSpacing))
+                
+    siz = int( tSat +  (m*numParamsPerSite) + (aiz * nZen) + nsiz)    
+    
+    
+    for sv in svs:
+        non_zero = 0
+        start = satCtr * numParamsPerSat 
+        end   = (satCtr+1) * numParamsPerSat
+        ## Check how many elements have values..
+        for d in range(start,end):
+            criterion = (np.abs(Neq[d,:]) > 0.00001)
+            non_zero = non_zero + np.size(np.array(np.where(criterion))[0])
+            #print(sv,"Non_zero:",non_zero,d)
+
+        if non_zero < 1 :
+            print("No observations for:",sv)
+            starts.append(start)
+            ends.append(end)
+            remove.append(satCtr)
+
+        satCtr = satCtr + 1
+
+    # remove the satellites without any observations from the svs array
+    # Need to do it in reverse order
+    remove = np.array(remove[::-1])
+    for i in remove:
+        svs = np.delete(svs,i)
+        nadir_freq = np.delete(nadir_freq,i,0)
+
+    ends = np.array(ends[::-1])
+    starts = np.array(starts[::-1])
+
+    print("BEFORE Neq shape:",np.shape(Neq),np.shape(nadir_freq))
+    # Axis 0 ---> (row)
+    # Axis 1 |    (column)
+    #        |
+    #        v
+    #
+    for i in range(0,np.size(ends)):
+        del_ind = range(starts[i],ends[i])
+        Neq = np.delete(Neq,del_ind,0)
+        Neq = np.delete(Neq,del_ind,1)
+        AtWb = np.delete(AtWb,del_ind)
+        #prefit_sums = np.delete(prefit_sums,del_ind)
+
+    print("AFTER Neq shape:",np.shape(Neq),np.shape(nadir_freq))
+    #return Neq, AtWb, svs, nadir_freq, prefit_sums
+    return Neq, AtWb, svs, nadir_freq
+    
 def calcPostFitBySite(cl3file,svs,Sol,params,svdat,args,modelNum):
     """
     calcPostFitBySite()
@@ -633,8 +741,6 @@ def calcPostFitBySite(cl3file,svs,Sol,params,svdat,args,modelNum):
     tSite = numParamsPerSite*params['numModels']
     numParams = tSat + tSite 
   
-    res_all = []
-
     brdc_dir = args.brdc_dir
 
     postfit = 0.0
@@ -854,7 +960,7 @@ def setUpPostFitTasks(cl3files,svs,Sol,params,svdat,args,tSat,numParamsPerSite,t
         print("Received results back")
         prefit = prefit + prefit_tmp
         prefit_sums[0:tSat] = prefit_sums[0:tSat] + prefit_sums_tmp[0:tSat]
-        prefit_res[0:tSat] = prefit_ress[0:tSat] + prefit_res_t[0:tSat]
+        prefit_res[0:tSat] = prefit_res[0:tSat] + prefit_res_tmp[0:tSat]
 
         postfit = postfit + postfit_tmp
         postfit_sums[0:tSat] = postfit_sums[0:tSat] + postfit_sums_tmp[0:tSat]
@@ -1031,7 +1137,7 @@ if __name__ == "__main__":
     #===================================================================
     parser.add_argument('--nadir_grid', dest='nadir_grid', default=0.1, type=float,help="Grid spacing to model NADIR corrections (default = 0.1 degrees)")
     parser.add_argument('--zenith_grid', dest='zen', default=0.5, type=float,help="Grid spacing to model Site corrections (default = 0.5 degrees)")
-    parser.add_argument('-m','--model',dest='model',choices=['pwl','pwlSite','pwlSiteDaily'], help="Create a ESM for satellites only, or for satellites and sites")
+    parser.add_argument('-m','--model',dest='model',choices=['pwlSiteDaily','pwlSiteAZDaily'], help="Create a ESM for satellites only, or for satellites and sites")
     parser.add_argument('--cpu',dest='cpu',type=int,default=4,help="Maximum number of cpus to use")
     parser.add_argument('--pf','--post_fit',dest='postfit',default=False,action='store_true',help="Calculate the postfit residuals")
     parser.add_argument('--cholesky',dest='cholesky',default=False,action='store_true',help="Use the cholesky inverse")
@@ -1235,9 +1341,10 @@ if __name__ == "__main__":
             tSite               = 0
             numParamsPerSite    = 0
 
-            if args.model == 'pwl':
-                numParams = numSVS * (numParamsPerSat)
-            elif args.model == 'pwlSite' or args.model== 'pwlSiteDaily':
+            #if args.model == 'pwl':
+            #    numParams = numSVS * (numParamsPerSat)
+            #elif args.model == 'pwlSite' or args.model== 'pwlSiteDaily':
+            if args.model== 'pwlSiteDaily' or args.model == 'pwlSiteAzDaily':
                 numParamsPerSite    = int(90./args.zen) + 1 
                 numParams           = numSVS * (numParamsPerSat) + numParamsPerSite * numSites
                 tSite               = numParamsPerSite * numSites
@@ -1266,7 +1373,6 @@ if __name__ == "__main__":
 
             # remove the unwanted observations after it has been saved to disk
             # as we may want to add to Neq together, which may have observations to satellites not seen in the Neq..
-            #Neq,AtWb,svs,nadir_freq,prefit_sums = compressNeq(Neq,AtWb,svs,numParamsPerSat,nadir_freq,prefit_sums)
             Neq,AtWb,svs,nadir_freq = compressNeq(Neq,AtWb,svs,numParamsPerSat,nadir_freq)
             tSat = np.size(svs) * numParamsPerSat
             numParams = tSat + tSite
@@ -1383,8 +1489,6 @@ if __name__ == "__main__":
                         ind = tSat + (s * numParamsPerSite) 
                         C[ind,ind] = 0.00001
 
-
-
         C_inv = np.linalg.pinv(C)
         del C
         
@@ -1486,6 +1590,14 @@ if __name__ == "__main__":
         #        meta['postfit'] = postfit
         tSat = np.size(svs) * (int(14.0/args.nadir_grid)+ 1 +1)
         numParamsPerSite = int(90.0/args.zen)+1
+    elif args.model == 'pwlSiteAZDaily':
+        # Do an inversion for each azimuth bin
+        nAz = int(360./args.az)
+        for i in range(0,nAz):
+            Neq_strip = Neq
+            Cov = np.linalg.pinv(Neq)
+            Sol_strip = np.dot(Cov,Atwb)
+            
     else:
         print("Now trying an inverse of Neq",np.shape(Neq))
         if args.cholesky:
